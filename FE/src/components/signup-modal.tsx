@@ -44,6 +44,9 @@ interface SignupModalProps {
 }
 
 export function SignupModal({ open, onOpenChange }: SignupModalProps) {
+  const [loading, setLoading] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+
   const form = useForm<SignupFormValues>({
     resolver: zodResolver(signupFormSchema),
     defaultValues: {
@@ -55,12 +58,42 @@ export function SignupModal({ open, onOpenChange }: SignupModalProps) {
     },
   })
 
-  const onSubmit = (values: SignupFormValues) => {
-    console.log('Signup form submitted:', values)
-    // TODO: 실제 회원가입 API 호출
-    // 회원가입 성공 후 모달 닫기
-    onOpenChange(false)
-    form.reset()
+  const onSubmit = async (values: SignupFormValues) => {
+    setLoading(true)
+    setError(null)
+
+    try {
+      const response = await fetch('http://localhost:8080/api/auth/signup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(values), // { email, password }
+      })
+
+      if (!response.ok) {
+        // 서버에서 에러 메시지를 보낸다면 우선 텍스트로 읽어봄
+        const message = await response.text()
+        throw new Error(message || '회원가입에 실패했습니다.')
+      }
+
+      const data = await response.json()
+
+      // 백엔드 응답 형식에 맞게 수정하면 됨
+      // 예: { token: 'JWT_TOKEN', ... }
+      if (data.token) {
+        localStorage.setItem('accessToken', data.token)
+      }
+
+      // 회원가입 성공 후 모달 닫기 + 폼 초기화
+      onOpenChange(false)
+      form.reset()
+    } catch (err: any) {
+      console.error('회원가입 실패:', err)
+      setError(err?.message ?? '회원가입 중 오류가 발생했습니다.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (

@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
+import { Navbar } from "@/components/navbar"
 import { Link } from "react-router-dom"
 import { Upload, Brain, Zap, ArrowRight, Workflow, LogIn } from "lucide-react"
 import { LoginModal } from "@/components/login-modal"
@@ -12,44 +13,7 @@ export default function Home() {
   return (
     <>
       <div className="min-h-screen bg-background text-foreground">
-        {/* Navigation */}
-        <nav className="border-b border-border bg-card/50 backdrop-blur sticky top-0 z-50">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Workflow className="w-6 h-6 text-primary" />
-              <span className="font-bold text-lg">flowmind</span>
-            </div>
-            <div className="hidden md:flex items-center gap-8">
-              <a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition">
-                Features
-              </a>
-              <a href="#workflow" className="text-sm text-muted-foreground hover:text-foreground transition">
-                How it Works
-              </a>
-              <a href="#pricing" className="text-sm text-muted-foreground hover:text-foreground transition">
-                Pricing
-              </a>
-            </div>
-            <div className="flex items-center gap-3">
-              <Button 
-                variant="ghost" 
-                size="sm"
-                onClick={() => setIsSignupModalOpen(true)}
-              >
-                Sign in
-              </Button>
-              <Button 
-                size="icon" 
-                variant="ghost"
-                onClick={() => setIsLoginModalOpen(true)}
-                aria-label="로그인"
-                className="hover:bg-accent/10"
-              >
-                <LogIn className="w-5 h-5" />
-              </Button>
-            </div>
-          </div>
-        </nav>
+      <Navbar />
 
       {/* Hero Section */}
       <section className="relative px-4 sm:px-6 lg:px-8 py-20 sm:py-28 max-w-7xl mx-auto">

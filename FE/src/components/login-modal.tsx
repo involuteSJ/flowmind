@@ -33,9 +33,13 @@ type LoginFormValues = z.infer<typeof loginFormSchema>
 interface LoginModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  onLoginSuccess?: (user: { name: string; email: string }) => void
 }
 
-export function LoginModal({ open, onOpenChange }: LoginModalProps) {
+export function LoginModal({ open, onOpenChange, onLoginSuccess }: LoginModalProps) {
+  const [loading, setLoading] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginFormSchema),
     defaultValues: {
@@ -44,12 +48,53 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
     },
   })
 
-  const onSubmit = (values: LoginFormValues) => {
-    console.log('Login form submitted:', values)
-    // TODO: 실제 로그인 API 호출
-    // 로그인 성공 후 모달 닫기
-    onOpenChange(false)
-    form.reset()
+  const onSubmit = async (values: LoginFormValues) => {
+    setLoading(true)
+    setError(null)
+
+    try {
+      const response = await fetch('http://localhost:8080/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(values),
+      })
+
+      if (!response.ok) {
+        const message = await response.text()
+        throw new Error(message || '로그인에 실패했습니다.')
+      }
+
+      const data = await response.json()
+
+      // ✅ 토큰 저장 (백엔드 응답에 맞게 key 조정 가능)
+      const token = data.token || data.accessToken
+      if (token) {
+        localStorage.setItem('accessToken', token as string)
+      }
+
+      // ✅ 유저 이름/이메일 추출 (응답 형태에 맞게 수정 가능)
+      const email = (data.email || data.user?.email || values.email) as string
+      const name =
+        (data.name ||
+          data.username ||
+          data.user?.name ||
+          data.user?.username ||
+          (email ? email.split('@')[0] : '사용자')) as string
+
+      if (onLoginSuccess) {
+        onLoginSuccess({ name, email })
+      }
+
+      form.reset()
+      onOpenChange(false)
+    } catch (err: any) {
+      console.error('로그인 실패:', err)
+      setError(err?.message ?? '로그인 중 오류가 발생했습니다.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -66,6 +111,12 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            {error && (
+              <p className="text-sm text-red-500">
+                {error}
+              </p>
+            )}
+
             <FormField
               control={form.control}
               name="email"
@@ -76,6 +127,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
                     <Input
                       type="email"
                       placeholder="example@email.com"
+                      autoComplete="email"
                       {...field}
                     />
                   </FormControl>
@@ -83,6 +135,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
                 </FormItem>
               )}
             />
+
             <FormField
               control={form.control}
               name="password"
@@ -93,6 +146,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
                     <Input
                       type="password"
                       placeholder="••••••"
+                      autoComplete="current-password"
                       {...field}
                     />
                   </FormControl>
@@ -100,15 +154,19 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
                 </FormItem>
               )}
             />
+
             <DialogFooter>
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => onOpenChange(false)}
+                disabled={loading}
               >
                 취소
               </Button>
-              <Button type="submit">로그인</Button>
+              <Button type="submit" disabled={loading}>
+                {loading ? '로그인 중...' : '로그인'}
+              </Button>
             </DialogFooter>
           </form>
         </Form>
