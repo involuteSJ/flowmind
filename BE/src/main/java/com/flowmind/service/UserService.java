@@ -7,6 +7,7 @@ import com.flowmind.dto.LoginRequest;
 import com.flowmind.dto.SignupRequest;
 import com.flowmind.entity.User;
 import com.flowmind.repository.UserRepository;
+import com.flowmind.security.JwtUtil;
 
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +18,7 @@ import lombok.RequiredArgsConstructor;
 public class UserService {
 	private final UserRepository userRepository;
 	private final PasswordEncoder  passwordEncoder;
+	private final JwtUtil jwtUtil;
 	
 	public Long signup(SignupRequest request) {
 		if(!request.getPassword().equals(request.getPasswordCheck())) {
@@ -48,8 +50,10 @@ public class UserService {
 			throw new IllegalArgumentException("이메일 또는 비밀번호가 올바르지 않습니다");
 		}
 		
-		return new LoginResult(user.getUserId(), user.getEmail(), user.getName());
+		String token = jwtUtil.createToken(user.getUserId(), user.getEmail());
+
+	    return new LoginResult(user.getUserId(), user.getEmail(), user.getName(), token);
 	}
 	
-	public record LoginResult(Long id, String email, String name) {}
+	public record LoginResult(Long id, String email, String name, String token) {}
 }
