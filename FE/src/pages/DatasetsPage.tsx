@@ -156,7 +156,6 @@ export default function DatasetsPage() {
         formData.append("images", img.file)
       })
   
-      // POST 요청
       const response = await fetch("http://localhost:8080/api/datasets/new", {
         method: "POST",
         body: formData,
@@ -170,21 +169,41 @@ export default function DatasetsPage() {
         throw new Error(raw || "데이터셋 생성에 실패했습니다.")
       }
   
-      // JSON 파싱
-      const data = JSON.parse(raw)
+      // ✅ JSON 파싱
+      const data = JSON.parse(raw) as {
+        datasetId?: string | number
+        id?: string | number
+        version?: string
+        versionTag?: string
+        versionName?: string
+        versionId?: string | number
+      }
   
-      // 성공 메시지
+      // ✅ 실제 백엔드 응답 필드명에 맞게 이 부분만 정확히 맞춰주면 됨
+      // 예시: { datasetId: 1, versionId: 10, version: "1.0" } 를 기대
+      const datasetId =
+        data.datasetId ?? data.id // <- 실제 필드명에 맞게 수정
+      const version =
+        data.version ?? data.versionTag ?? data.versionName ?? "1.0"
+      const versionId =
+        data.versionId ?? data.id // <- 라우트 파라미터로 쓸 version PK
+  
       setSuccessMessage("데이터셋이 성공적으로 생성되었습니다.")
   
-      // datasetVersionId 또는 datasetId 추출
-      // 백엔드에서 내려주는 필드명에 맞게 수정 (예: data.versionId / data.datasetId)
-      const versionId = data.versionId ?? data.id ?? null
-  
-      if (!versionId) {
-        console.warn("⚠ versionId가 응답에 없습니다. annotation 페이지로 이동할 수 없습니다.", data)
+      if (!datasetId || !versionId) {
+        console.warn(
+          "⚠ datasetId 또는 versionId가 응답에 없습니다. annotation 페이지로 이동할 수 없습니다.",
+          data,
+        )
       } else {
-        // Annotation 페이지로 이동
-        navigate(`/annotate/${versionId}`)
+        // ✅ AnnotatePage로 이동 (path 파라미터 + query string)
+        //   - path:   /annotate/:versionId
+        //   - query:  ?datasetId=...&version=...
+        navigate(
+          `/annotate/${versionId}?datasetId=${datasetId}&version=${encodeURIComponent(
+            String(version),
+          )}`,
+        )
       }
   
       // 폼 초기화
@@ -203,6 +222,7 @@ export default function DatasetsPage() {
       setIsSubmitting(false)
     }
   }
+  
 
   // -----------------------------
   // 4. 렌더링
@@ -312,7 +332,9 @@ export default function DatasetsPage() {
                             <td className="py-2 pr-2">
                               <button
                                 className="text-xs underline text-accent"
-                                onClick={() => navigate(`/annotate/${latestVersion?.id}`)}
+                                onClick={() => navigate(
+                                  `/annotate/${latestVersion?.id}?datasetId=${ds.id}&version=${latestVersion?.versionTag}`,
+                                )}
                               >
                                 Details
                               </button>
