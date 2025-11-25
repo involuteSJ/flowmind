@@ -30,7 +30,7 @@ export default function Home() {
               coding required.
             </p>
             <div className="flex flex-col sm:flex-row gap-4">
-              <Link to="/upload">
+              <Link to="/datasets">
                 <Button size="lg" className="gap-2 w-full sm:w-auto">
                   Start Annotating <ArrowRight className="w-4 h-4" />
                 </Button>

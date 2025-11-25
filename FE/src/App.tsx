@@ -13,7 +13,7 @@ function App() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/upload" element={<UploadPage />} />
-        <Route path="/annotate" element={<AnnotatePage />} />
+        <Route path="/annotate/:versionId" element={<AnnotatePage />} />
         <Route path="/datasets" element={<DatasetsPage />} />
         <Route path="/train" element={<TrainPage />} />
         <Route path="/evaluate" element={<EvaluatePage />} />

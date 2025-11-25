@@ -1,9 +1,20 @@
 import type React from "react"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
+import { useNavigate } from "react-router-dom"
 import { Navbar } from "@/components/navbar"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Database, Plus, AlertCircle, Upload, ImageIcon, ChevronRight, X, CheckCircle2, Loader2 } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import {
+  Database,
+  Plus,
+  AlertCircle,
+  Upload,
+  ImageIcon,
+  Loader2,
+  Trash2,
+} from "lucide-react"
+// 어노테이션 단계로 연결할 때 사용할 수 있음 (지금은 사용 X)
 import { AnnotationModal } from "@/components/annotation-modal"
 
 interface UploadedImage {
@@ -14,437 +25,425 @@ interface UploadedImage {
   uploadedAt: Date
 }
 
-type Step = "overview" | "upload" | "annotate"
+interface DatasetVersion {
+  id: number
+  versionTag: string
+  createdAt: string
+  assetsCount: number
+}
+
+interface DatasetSummary {
+  id: number
+  name: string
+  versions: DatasetVersion[]
+}
 
 export default function DatasetsPage() {
-  const [currentStep, setCurrentStep] = useState<Step>("overview")
+  // --- 전체 데이터셋 리스트 상태 ---
+  const [datasets, setDatasets] = useState<DatasetSummary[]>([])
+  const [isLoadingDatasets, setIsLoadingDatasets] = useState(false)
+  const [datasetsError, setDatasetsError] = useState<string | null>(null)
+
+  // --- 새 데이터셋 생성 상태 ---
+  const [datasetName, setDatasetName] = useState("")
   const [images, setImages] = useState<UploadedImage[]>([])
-  const [dragActive, setDragActive] = useState(false)
-  const [uploading, setUploading] = useState(false)
-  const [showAnnotationModal, setShowAnnotationModal] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
-  const handleDrag = (e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setDragActive(e.type === "dragenter" || e.type === "dragover")
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const navigate = useNavigate()
+
+  // -----------------------------
+  // 1. 전체 데이터셋 목록 불러오기
+  // -----------------------------
+  const fetchDatasets = async () => {
+    setIsLoadingDatasets(true)
+    setDatasetsError(null)
+    const token = localStorage.getItem("accessToken")
+    try {
+      // TODO: 실제 API에 맞게 URL/파라미터 수정
+      const res = await fetch("http://localhost:8080/api/datasets/all", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+      if (!res.ok) {
+        const text = await res.text().catch(() => "")
+        throw new Error(text || "데이터셋 목록을 불러오는 데 실패했습니다.")
+      }
+      const data = (await res.json()) as DatasetSummary[]
+      setDatasets(data)
+    } catch (err: unknown) {
+      const msg =
+        err instanceof Error
+          ? err.message
+          : "데이터셋 목록을 불러오는 중 오류가 발생했습니다."
+      setDatasetsError(msg)
+    } finally {
+      setIsLoadingDatasets(false)
+    }
   }
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setDragActive(false)
+  useEffect(() => {
+    fetchDatasets()
+  }, [])
 
-    const files = Array.from(e.dataTransfer.files).filter((file) => file.type.startsWith("image/"))
-    processFiles(files)
+  // -----------------------------
+  // 2. 파일 선택/관리
+  // -----------------------------
+  const handleOpenFileDialog = () => {
+    fileInputRef.current?.click()
   }
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.currentTarget.files ? Array.from(e.currentTarget.files) : []
-    processFiles(files)
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    if (!files.length) return
+
+    const imageFiles = files.filter((f) => f.type.startsWith("image/"))
+    if (!imageFiles.length) {
+      setCreateError("이미지 파일만 업로드할 수 있습니다.")
+      return
+    }
+
+    setCreateError(null)
+    setSuccessMessage(null)
+
+    const newImages: UploadedImage[] = imageFiles.map((file) => ({
+      id: `${file.name}-${file.lastModified}-${Math.random()
+        .toString(36)
+        .slice(2, 8)}`,
+      file,
+      preview: URL.createObjectURL(file),
+      size: file.size,
+      uploadedAt: new Date(),
+    }))
+
+    setImages((prev) => [...prev, ...newImages])
   }
 
-  const processFiles = (files: File[]) => {
-    setUploading(true)
-    setTimeout(() => {
-      const newImages = files.map((file) => ({
-        id: Math.random().toString(36).substr(2, 9),
-        file,
-        preview: URL.createObjectURL(file),
-        size: file.size,
-        uploadedAt: new Date(),
-      }))
-      setImages((prev) => [...prev, ...newImages])
-      setUploading(false)
-    }, 500)
+  const handleRemoveImage = (id: string) => {
+    setImages((prev) => prev.filter((img) => img.id !== id))
   }
 
-  const removeImage = (id: string) => {
-    setImages((prev) => {
-      const image = prev.find((img) => img.id === id)
-      if (image) URL.revokeObjectURL(image.preview)
-      return prev.filter((img) => img.id !== id)
-    })
+  const totalSizeMB =
+    images.reduce((sum, img) => sum + img.size, 0) / (1024 * 1024)
+
+  // -----------------------------
+  // 3. 데이터셋 생성 (이름 + 이미지 업로드 → 서버 전송)
+  // -----------------------------
+  const handleCreateDataset = async () => {
+    if (!datasetName.trim()) {
+      setCreateError("데이터셋 이름을 입력해주세요.")
+      return
+    }
+    if (images.length === 0) {
+      setCreateError("최소 한 장 이상의 이미지를 업로드해야 합니다.")
+      return
+    }
+  
+    setCreateError(null)
+    setSuccessMessage(null)
+    setIsSubmitting(true)
+  
+    try {
+      const formData = new FormData()
+      const token = localStorage.getItem("accessToken")
+  
+      formData.append("name", datasetName.trim())
+      images.forEach((img) => {
+        formData.append("images", img.file)
+      })
+  
+      // POST 요청
+      const response = await fetch("http://localhost:8080/api/datasets/new", {
+        method: "POST",
+        body: formData,
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+  
+      const raw = await response.text()
+      if (!response.ok) {
+        throw new Error(raw || "데이터셋 생성에 실패했습니다.")
+      }
+  
+      // JSON 파싱
+      const data = JSON.parse(raw)
+  
+      // 성공 메시지
+      setSuccessMessage("데이터셋이 성공적으로 생성되었습니다.")
+  
+      // datasetVersionId 또는 datasetId 추출
+      // 백엔드에서 내려주는 필드명에 맞게 수정 (예: data.versionId / data.datasetId)
+      const versionId = data.versionId ?? data.id ?? null
+  
+      if (!versionId) {
+        console.warn("⚠ versionId가 응답에 없습니다. annotation 페이지로 이동할 수 없습니다.", data)
+      } else {
+        // Annotation 페이지로 이동
+        navigate(`/annotate/${versionId}`)
+      }
+  
+      // 폼 초기화
+      setDatasetName("")
+      setImages([])
+  
+      // 리스트 다시 불러오기
+      fetchDatasets()
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "데이터셋 생성 중 오류가 발생했습니다."
+      setCreateError(message)
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
-  const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return "0 Bytes"
-    const k = 1024
-    const sizes = ["Bytes", "KB", "MB", "GB"]
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i]
-  }
+  // -----------------------------
+  // 4. 렌더링
+  // -----------------------------
+  return (
+    <div className="min-h-screen bg-background">
+      <Navbar />
 
-  const handleAnnotationSave = (
-    annotations: Array<{ imageId: string; annotations: Array<{ id: string; x: number; y: number; label: string }> }>,
-  ) => {
-    console.log("[v0] Annotations saved:", annotations)
-    setShowAnnotationModal(false)
-    setCurrentStep("overview")
-  }
-
-  if (currentStep === "overview") {
-    return (
-      <div className="min-h-screen bg-background">
-        <Navbar />
-
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-          <div className="mb-8 flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold mb-2">Datasets</h1>
-              <p className="text-muted-foreground">Manage and organize your annotated image datasets.</p>
-            </div>
-            <Button onClick={() => setCurrentStep("upload")} className="gap-2">
-              <Plus className="w-4 h-4" />
-              New Dataset
-            </Button>
-          </div>
-
-          <div className="grid lg:grid-cols-3 gap-8">
-            {/* Datasets List */}
-            <div className="lg:col-span-2">
-              <Card className="p-8 flex flex-col items-center justify-center min-h-96 border-2 border-dashed">
-                <Database className="w-16 h-16 text-muted-foreground mb-4" />
-                <h2 className="text-xl font-semibold mb-2">No datasets yet</h2>
-                <p className="text-muted-foreground mb-6 text-center">
-                  Create your first dataset by uploading and annotating images.
-                </p>
-                <Button onClick={() => setCurrentStep("upload")}>Create First Dataset</Button>
-              </Card>
-            </div>
-
-            {/* Dataset Stats */}
-            <div className="lg:col-span-1">
-              <div className="space-y-4">
-                <Card className="p-6">
-                  <div className="text-sm text-muted-foreground mb-1">Total Datasets</div>
-                  <div className="text-3xl font-bold">0</div>
-                </Card>
-
-                <Card className="p-6">
-                  <div className="text-sm text-muted-foreground mb-1">Total Images</div>
-                  <div className="text-3xl font-bold">0</div>
-                </Card>
-
-                <Card className="p-6">
-                  <div className="text-sm text-muted-foreground mb-1">Total Annotations</div>
-                  <div className="text-3xl font-bold">0</div>
-                </Card>
-
-                <Card className="p-6 border-accent/20 bg-accent/5">
-                  <h4 className="font-semibold mb-2 flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4" />
-                    Dataset Tips
-                  </h4>
-                  <ul className="space-y-2 text-xs text-muted-foreground">
-                    <li>• Organize images by category</li>
-                    <li>• Maintain balanced datasets</li>
-                    <li>• Use consistent labeling</li>
-                    <li>• Export as COCO, Pascal VOC, or CSV</li>
-                  </ul>
-                </Card>
-              </div>
-            </div>
-          </div>
-        </main>
-      </div>
-    )
-  }
-
-  if (currentStep === "upload") {
-    return (
-      <div className="min-h-screen bg-background">
-        <Navbar />
-
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-          <div className="mb-8">
-            <div className="flex items-center gap-4 mb-8">
-              <div className="flex items-center">
-                <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-semibold">
-                  1
-                </div>
-                <span className="ml-2 font-medium">Upload Images</span>
-              </div>
-              <div className="flex-1 h-1 bg-muted"></div>
-              <div className="flex items-center">
-                <div className="w-8 h-8 rounded-full bg-muted text-muted-foreground flex items-center justify-center text-sm font-semibold">
-                  2
-                </div>
-                <span className="ml-2 text-muted-foreground">Annotate</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold mb-2">Upload Images</h1>
-            <p className="text-muted-foreground">
-              Upload your images to start building your dataset. Drag and drop or click to select files.
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
+        {/* 상단 헤더 */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+              <Database className="w-6 h-6" />
+              Datasets
+            </h1>
+            <p className="text-muted-foreground mt-1">
+              생성된 데이터셋을 확인하고, 새로운 데이터셋을 생성할 수 있습니다.
             </p>
           </div>
+          {/* 필요하면 상단에 New Dataset 버튼을 둬서 오른쪽 카드로 스크롤/포커싱해도 됨 */}
+        </div>
 
-          <div className="grid lg:grid-cols-3 gap-8">
-            {/* Upload Area */}
-            <div className="lg:col-span-2">
-              <div
-                onDragEnter={handleDrag}
-                onDragLeave={handleDrag}
-                onDragOver={handleDrag}
-                onDrop={handleDrop}
-                className={`border-2 border-dashed rounded-lg p-12 text-center transition-colors ${
-                  dragActive ? "border-primary bg-primary/5" : "border-border bg-card/30"
-                }`}
-              >
-                <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                <h2 className="text-xl font-semibold mb-2">Drag and drop your images</h2>
-                <p className="text-muted-foreground mb-6">or</p>
-                <label>
-                  <input
-                    type="file"
-                    multiple
-                    accept="image/*"
-                    onChange={handleFileSelect}
-                    className="hidden"
-                    disabled={uploading}
-                  />
-                  <Button variant="outline" className="cursor-pointer bg-transparent" disabled={uploading}>
-                    <span className="flex items-center gap-2">
-                      {uploading ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          Uploading...
-                        </>
-                      ) : (
-                        <>
-                          <Upload className="w-4 h-4" />
-                          Select Files
-                        </>
-                      )}
-                    </span>
-                  </Button>
-                </label>
-                <p className="text-xs text-muted-foreground mt-4">
-                  Supported formats: JPG, PNG, WebP, GIF (Max 100MB per file)
-                </p>
-              </div>
-
-              {/* Uploaded Images Grid */}
-              {images.length > 0 && (
-                <div className="mt-8">
-                  <h3 className="font-semibold mb-4 flex items-center gap-2">
-                    <CheckCircle2 className="w-5 h-5 text-green-500" />
-                    Uploaded ({images.length})
-                  </h3>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    {images.map((image) => (
-                      <div
-                        key={image.id}
-                        className="group relative overflow-hidden rounded-lg border border-border bg-card hover:border-primary/50 transition"
-                      >
-                        <div className="aspect-square overflow-hidden">
-                          <img
-                            src={image.preview || "/placeholder.svg"}
-                            alt="Preview"
-                            className="w-full h-full object-cover group-hover:scale-105 transition"
-                          />
-                        </div>
-                        <button
-                          onClick={() => removeImage(image.id)}
-                          className="absolute top-2 right-2 p-1 bg-destructive/90 text-destructive-foreground rounded opacity-0 group-hover:opacity-100 transition"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition flex items-end">
-                          <div className="w-full p-2 text-white text-xs opacity-0 group-hover:opacity-100 transition">
-                            {formatFileSize(image.size)}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Sidebar */}
-            <div className="lg:col-span-1">
-              <Card className="p-6 sticky top-24">
-                <h3 className="font-semibold mb-4">Upload Summary</h3>
-                <div className="space-y-4 text-sm">
-                  <div>
-                    <div className="text-muted-foreground mb-1">Total Images</div>
-                    <div className="text-2xl font-bold">{images.length}</div>
-                  </div>
-                  {images.length > 0 && (
-                    <>
-                      <div>
-                        <div className="text-muted-foreground mb-1">Total Size</div>
-                        <div className="font-semibold">
-                          {formatFileSize(images.reduce((sum, img) => sum + img.size, 0))}
-                        </div>
-                      </div>
-                      <div className="pt-4 border-t border-border">
-                        <div className="text-muted-foreground mb-1">Newest Upload</div>
-                        <div className="text-sm">{images[images.length - 1].uploadedAt.toLocaleTimeString()}</div>
-                      </div>
-                    </>
+        <div className="grid lg:grid-cols-3 gap-8">
+          {/* 왼쪽: 전체 데이터셋 리스트 */}
+          <div className="lg:col-span-2 space-y-4">
+            <Card className="p-4">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold">All Datasets</h2>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1"
+                  onClick={fetchDatasets}
+                  disabled={isLoadingDatasets}
+                >
+                  {isLoadingDatasets && (
+                    <Loader2 className="w-4 h-4 animate-spin" />
                   )}
-                </div>
-
-                <div className="mt-6 pt-6 border-t border-border">
-                  <div className="text-xs text-muted-foreground mb-4">
-                    {images.length === 0 ? "Upload at least 1 image to proceed" : "Ready to annotate your images"}
-                  </div>
-                  <div className="flex gap-2">
-                    <Button variant="outline" onClick={() => setCurrentStep("overview")} className="flex-1">
-                      Back
-                    </Button>
-                    <Button
-                      className="flex-1 gap-2"
-                      disabled={images.length === 0}
-                      onClick={() => setCurrentStep("annotate")}
-                    >
-                      Continue
-                      <ChevronRight className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-              </Card>
-            </div>
-          </div>
-
-          {/* Info Section */}
-          <div className="mt-16 grid md:grid-cols-2 gap-6">
-            <Card className="p-6 border-primary/20 bg-primary/5">
-              <h4 className="font-semibold mb-2 flex items-center gap-2">
-                <CheckCircle2 className="w-5 h-5 text-primary" />
-                Tips for Best Results
-              </h4>
-              <ul className="space-y-2 text-sm text-muted-foreground">
-                <li>• Use clear, well-lit images for better accuracy</li>
-                <li>• Ensure consistent image sizes for your dataset</li>
-                <li>• Include diverse examples to improve model performance</li>
-                <li>• At least 50-100 images recommended per category</li>
-              </ul>
-            </Card>
-
-            <Card className="p-6 border-accent/20 bg-accent/5">
-              <h4 className="font-semibold mb-2 flex items-center gap-2">
-                <AlertCircle className="w-5 h-5 text-accent" />
-                Dataset Guidelines
-              </h4>
-              <ul className="space-y-2 text-sm text-muted-foreground">
-                <li>• Maximum 5GB per upload session</li>
-                <li>• Batch uploads are processed sequentially</li>
-                <li>• Your data is encrypted and securely stored</li>
-                <li>• Delete images anytime before final export</li>
-              </ul>
-            </Card>
-          </div>
-        </main>
-      </div>
-    )
-  }
-
-  if (currentStep === "annotate") {
-    return (
-      <div className="min-h-screen bg-background">
-        <Navbar />
-
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-          <div className="mb-8">
-            <div className="flex items-center gap-4 mb-8">
-              <div className="flex items-center">
-                <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-semibold">
-                  ✓
-                </div>
-                <span className="ml-2 font-medium">Upload Images</span>
+                  <span>Refresh</span>
+                </Button>
               </div>
-              <div className="flex-1 h-1 bg-primary"></div>
-              <div className="flex items-center">
-                <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-semibold">
-                  2
+
+              {datasetsError && (
+                <div className="flex items-center gap-2 text-sm text-destructive mb-3">
+                  <AlertCircle className="w-4 h-4" />
+                  <span>{datasetsError}</span>
                 </div>
-                <span className="ml-2 font-medium">Annotate</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold mb-2">Annotate Images ({images.length})</h1>
-            <p className="text-muted-foreground">
-              Add labels and annotations to your images to create a labeled dataset.
-            </p>
-          </div>
-
-          <div className="grid lg:grid-cols-3 gap-8">
-            {/* Main Annotation Area */}
-            <div className="lg:col-span-2">
-              {images.length > 0 ? (
-                <Card className="p-8 flex flex-col items-center justify-center min-h-96">
-                  <ImageIcon className="w-16 h-16 text-muted-foreground mb-4" />
-                  <h2 className="text-xl font-semibold mb-2">Start Annotating</h2>
-                  <p className="text-muted-foreground mb-6 text-center">
-                    Click the button below to open the annotation tool and label your {images.length} image
-                    {images.length !== 1 ? "s" : ""}.
-                  </p>
-                  <Button onClick={() => setShowAnnotationModal(true)} className="gap-2">
-                    <ImageIcon className="w-4 h-4" />
-                    Open Annotation Tool
-                  </Button>
-                </Card>
-              ) : (
-                <Card className="p-8 flex flex-col items-center justify-center min-h-96 border-2 border-dashed">
-                  <ImageIcon className="w-16 h-16 text-muted-foreground mb-4" />
-                  <h2 className="text-xl font-semibold mb-2">No images to annotate</h2>
-                  <p className="text-muted-foreground mb-6 text-center">Go back to upload images first.</p>
-                  <Button onClick={() => setCurrentStep("upload")}>Back to Upload</Button>
-                </Card>
               )}
-            </div>
 
-            {/* Annotation Tools Sidebar */}
-            <div className="lg:col-span-1">
-              <Card className="p-6 sticky top-24">
-                <h3 className="font-semibold mb-4">Annotation Tools</h3>
-                <div className="space-y-3">
-                  <button className="w-full px-4 py-2 text-left text-sm font-medium rounded border border-border hover:bg-accent/10 transition bg-accent/5 border-accent/30">
-                    Classification
-                  </button>
-                  <button className="w-full px-4 py-2 text-left text-sm font-medium rounded border border-border hover:bg-accent/10 transition text-muted-foreground opacity-50 cursor-not-allowed">
-                    Bounding Box
-                  </button>
-                  <button className="w-full px-4 py-2 text-left text-sm font-medium rounded border border-border hover:bg-accent/10 transition text-muted-foreground opacity-50 cursor-not-allowed">
-                    Polygon
-                  </button>
-                  <button className="w-full px-4 py-2 text-left text-sm font-medium rounded border border-border hover:bg-accent/10 transition text-muted-foreground opacity-50 cursor-not-allowed">
-                    Segmentation
-                  </button>
+              {isLoadingDatasets ? (
+                <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
+                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                  Loading datasets…
                 </div>
+              ) : datasets.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-10 text-sm text-muted-foreground">
+                  <Database className="w-10 h-10 mb-3 opacity-70" />
+                  아직 생성된 데이터셋이 없습니다.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="border-b">
+                      <tr className="text-xs text-muted-foreground">
+                        <th className="text-left py-2 pr-2">Name</th>
+                        <th className="text-left py-2 pr-2">Assets</th>
+                        <th className="text-left py-2 pr-2">Version</th>
+                        <th className="text-left py-2">Created</th>
+                        <th className="text-left py-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {datasets.map((ds) => {
+                        const latestVersion = ds.versions?.[0] ?? null;
 
-                <div className="mt-6 pt-6 border-t border-border">
-                  <p className="text-sm text-muted-foreground mb-4">{images.length} images uploaded</p>
-                  <div className="flex gap-2 flex-col">
-                    <Button onClick={() => setCurrentStep("upload")} variant="outline">
-                      Back to Upload
-                    </Button>
-                    <Button onClick={() => setCurrentStep("overview")}>Finish & Save</Button>
-                  </div>
+                        return (
+                          <tr key={ds.id} className="border-b last:border-b-0">
+                            {/* Dataset Name */}
+                            <td className="py-2 pr-2 font-medium">{ds.name}</td>
+
+                            {/* Image Count -> assetsCount */}
+                            <td className="py-2 pr-2">
+                              {latestVersion ? latestVersion.assetsCount : 0}
+                            </td>
+
+                            {/* Status -> versionTag (dropdown) */}
+                            <td className="py-2 pr-2">
+                              <select
+                                className="border rounded px-2 py-1 text-xs"
+                                defaultValue={latestVersion?.versionTag}
+                              >
+                                {ds.versions.map((v) => (
+                                  <option key={v.id} value={v.versionTag}>
+                                    {v.versionTag}
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+
+                            {/* CreatedAt */}
+                            <td className="py-2 text-xs text-muted-foreground">
+                              {latestVersion
+                                ? new Date(latestVersion.createdAt).toLocaleString()
+                                : "-"}
+                            </td>
+                            <td className="py-2 pr-2">
+                              <button
+                                className="text-xs underline text-accent"
+                                onClick={() => navigate(`/annotate/${latestVersion?.id}`)}
+                              >
+                                Details
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
-              </Card>
-            </div>
+              )}
+            </Card>
           </div>
-        </main>
 
-        {/* Annotation Modal */}
-        {showAnnotationModal && (
-          <AnnotationModal
-            images={images}
-            onClose={() => setShowAnnotationModal(false)}
-            onSave={handleAnnotationSave}
-          />
-        )}
-      </div>
-    )
-  }
+          {/* 오른쪽: 새 데이터셋 생성 카드 */}
+          <div className="space-y-4">
+            <Card className="p-4 space-y-4">
+              <div className="flex items-center justify-between mb-1">
+                <h2 className="text-sm font-semibold flex items-center gap-2">
+                  <Plus className="w-4 h-4" />
+                  Create New Dataset
+                </h2>
+              </div>
 
-  return null
+              {/* 데이터셋 이름 */}
+              <div className="space-y-2">
+                <label className="text-xs font-medium">Dataset Name</label>
+                <Input
+                  placeholder="예: warehouse_cctv_v1"
+                  value={datasetName}
+                  onChange={(e) => {
+                    setDatasetName(e.target.value)
+                    setSuccessMessage(null)
+                  }}
+                  className="h-8 text-sm"
+                />
+              </div>
+
+              {/* 이미지 업로드 */}
+              <div className="space-y-2">
+                <label className="text-xs font-medium flex items-center gap-2">
+                  <ImageIcon className="w-3 h-3" />
+                  Images
+                </label>
+
+                <div
+                  className="border-2 border-dashed rounded-lg p-4 flex flex-col items-center justify-center text-center cursor-pointer hover:border-primary/60 transition"
+                  onClick={handleOpenFileDialog}
+                >
+                  <Upload className="w-6 h-6 text-muted-foreground mb-2" />
+                  <p className="text-xs font-medium">Click to select images</p>
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    PNG, JPG 등 이미지 파일을 여러 개 선택할 수 있습니다.
+                  </p>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    onChange={handleFileChange}
+                  />
+                </div>
+
+                {/* 업로드된 이미지 미리보기 */}
+                {images.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-medium">
+                        Uploaded Images{" "}
+                        <span className="text-muted-foreground">
+                          ({images.length})
+                        </span>
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">
+                        Total: {totalSizeMB.toFixed(2)} MB
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {images.map((img) => (
+                        <div key={img.id} className="relative group">
+                          <img
+                            src={img.preview}
+                            alt={img.file.name}
+                            className="w-full h-16 object-cover rounded border"
+                          />
+                          <button
+                            type="button"
+                            className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition"
+                            onClick={() => handleRemoveImage(img.id)}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 에러 / 성공 메시지 */}
+              {createError && (
+                <p className="text-xs text-destructive flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" />
+                  {createError}
+                </p>
+              )}
+              {successMessage && (
+                <p className="text-xs text-emerald-500">{successMessage}</p>
+              )}
+
+              {/* 생성 버튼 */}
+              <div className="flex justify-end">
+                <Button
+                  size="sm"
+                  className="gap-2"
+                  onClick={handleCreateDataset}
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting && (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  )}
+                  <span>Create Dataset</span>
+                </Button>
+              </div>
+            </Card>
+
+            {/* 추후: 여기 오른쪽에 Auto/Self Annotation 가이드 같은 정보 카드도 추가 가능 */}
+          </div>
+        </div>
+      </main>
+    </div>
+  )
 }
