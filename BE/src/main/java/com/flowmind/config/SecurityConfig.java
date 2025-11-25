@@ -39,6 +39,12 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         // 회원가입/로그인 API는 인증 없이 허용
                         .requestMatchers("/api/auth/**").permitAll()
+//                        .requestMatchers("/api/datasets/**").permitAll()
+                        .requestMatchers(
+                                "/swagger-ui/**",
+                                "/v3/api-docs/**",
+                                "/v3/api-docs.yaml"
+                        ).permitAll()
                         // 그 외는 인증 필요 (나중에 조정 가능)
                         .anyRequest().authenticated()
                 )

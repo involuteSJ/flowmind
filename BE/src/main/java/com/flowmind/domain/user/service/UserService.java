@@ -1,12 +1,12 @@
-package com.flowmind.service;
+package com.flowmind.domain.user.service;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
-import com.flowmind.dto.LoginRequest;
-import com.flowmind.dto.SignupRequest;
-import com.flowmind.entity.User;
-import com.flowmind.repository.UserRepository;
+import com.flowmind.domain.user.dto.LoginRequest;
+import com.flowmind.domain.user.dto.SignupRequest;
+import com.flowmind.domain.user.entity.User;
+import com.flowmind.domain.user.repository.UserRepository;
 import com.flowmind.security.JwtUtil;
 
 import jakarta.transaction.Transactional;
@@ -54,6 +54,13 @@ public class UserService {
 
 	    return new LoginResult(user.getUserId(), user.getEmail(), user.getName(), token);
 	}
+	
+	public Long findUserIdByEmail(String email) {
+	    User user = userRepository.findByEmail(email)
+	            .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
+	    return user.getUserId();
+	}
+
 	
 	public record LoginResult(Long id, String email, String name, String token) {}
 }

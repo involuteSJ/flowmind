@@ -1,4 +1,4 @@
-package com.flowmind.entity;
+package com.flowmind.domain.user.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
