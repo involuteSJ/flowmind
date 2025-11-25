@@ -27,6 +27,9 @@ public class Dataset {
     // 어떤 유저의 데이터셋인지
     @Column(name="user_id", nullable=false)
     private Long userId;
+    
+    @Column(name="description")
+    private String description;
 
     @OneToMany(mappedBy = "dataset", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<DatasetVersion> versions = new ArrayList<>();

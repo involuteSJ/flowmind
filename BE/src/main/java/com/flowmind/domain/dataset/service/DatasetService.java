@@ -6,7 +6,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.flowmind.domain.dataset.dto.AnnotationDto;
+import com.flowmind.domain.dataset.dto.DatasetDetailResponse;
 import com.flowmind.domain.dataset.dto.DatasetResponse;
+import com.flowmind.domain.dataset.dto.ImageWithAnnotationsDto;
 import com.flowmind.domain.dataset.entity.*;
 import com.flowmind.domain.dataset.repository.*;
 import com.flowmind.domain.user.entity.User;
@@ -84,6 +87,49 @@ public class DatasetService {
         }
 
         return version;
+    }
+    
+    public DatasetDetailResponse getDatasetDetail(Long datasetId, String versionTag, Long userId) {
+        DatasetVersion version = datasetVersionRepository
+                .findByDatasetIdAndVersionAndUser(datasetId, versionTag, userId)
+                .orElseThrow(() -> new IllegalArgumentException("데이터셋 또는 버전을 찾을 수 없습니다."));
+
+        // Asset + Annotation + LabelClass 로드
+        List<Asset> assets = assetRepository.findWithAnnotationsByDatasetVersion(version);
+
+        List<ImageWithAnnotationsDto> imageDtos = assets.stream()
+                .map(asset -> {
+                    List<AnnotationDto> annDtos = asset.getAnnotations().stream()
+                            .map(ann -> new AnnotationDto(
+                                    ann.getAnnotationId(),
+                                    ann.getLabelClass().getName(),
+                                    ann.getXCenter(),
+                                    ann.getYCenter(),
+                                    ann.getWidth(),
+                                    ann.getHeight()
+                            ))
+                            .toList();
+
+                    // 실제 이미지 파일은 별도 엔드포인트에서 서빙
+                    String imageUrl = "/api/datasets/assets/" + asset.getAssetId() + "/image";
+
+                    return new ImageWithAnnotationsDto(
+                            asset.getAssetId(),
+                            asset.getName(),
+                            imageUrl,
+                            annDtos
+                    );
+                })
+                .toList();
+
+        return new DatasetDetailResponse(
+                version.getDataset().getDatasetId(),
+                version.getDataset().getName(),
+                version.getVersionTag(),
+                version.getCreatedAt().toString(),
+                version.getDataset().getDescription(),   // description 칼럼이 있다면
+                imageDtos
+        );
     }
     
     public List<DatasetResponse> getDatasetsWithVersions(Long userId) {
