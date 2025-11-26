@@ -21,8 +21,14 @@ public class Annotation {
     private Asset asset;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "class_id", nullable = false)
+    @JoinColumns({
+        @JoinColumn(name = "class_id", referencedColumnName = "class_id"),
+        @JoinColumn(name = "dataset_version_id", referencedColumnName = "dataset_version_id")
+    })
     private LabelClass labelClass;
+    
+    @Column(name = "storage_uri")
+    private String storageUri;
 
     @Column(name = "x_center", nullable = false)
     private Double xCenter;

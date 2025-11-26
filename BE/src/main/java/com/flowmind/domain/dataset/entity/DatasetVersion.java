@@ -10,6 +10,7 @@ import java.util.List;
 @Entity
 @Table(name = "dataset_version")
 @Getter
+@Setter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor
 @Builder
@@ -37,6 +38,18 @@ public class DatasetVersion {
     protected void onCreate() {
         this.createdAt = LocalDateTime.now();
     }
+    
+    @Column(name="train_cnt")
+    private Integer trainCnt;
+    
+    @Column(name="valid_cnt")
+    private Integer validCnt;
+    
+    @Column(name="test_cnt")
+    private Integer testCnt;
+    
+    @Column(name="ratio", columnDefinition="JSON")
+    private String ratio;
 
     public void setDataset(Dataset dataset) {
         this.dataset = dataset;

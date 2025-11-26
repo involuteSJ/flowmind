@@ -12,6 +12,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.flowmind.domain.dataset.dto.DatasetDetailResponse;
 import com.flowmind.domain.dataset.dto.DatasetResponse;
+import com.flowmind.domain.dataset.dto.SaveAnnotationsRequest;
 import com.flowmind.domain.dataset.entity.Asset;
 import com.flowmind.domain.dataset.entity.DatasetVersion;
 import com.flowmind.domain.dataset.repository.AssetRepository;
@@ -35,9 +36,10 @@ public class DatasetController {
     )
     public ResponseEntity<?> createDataset(
             @RequestParam("name") String name,
+            @RequestParam("description") String description,
             @RequestPart("images") List<MultipartFile> images
     ) {
-        DatasetVersion version = datasetService.createDatasetWithV0(name, images);
+        DatasetVersion version = datasetService.createDatasetWithV0(name, images, description);
 
         return ResponseEntity.ok(new CreateDatasetResponse(
                 version.getDataset().getDatasetId(),
@@ -81,6 +83,24 @@ public class DatasetController {
         return ResponseEntity.ok()
                 .contentType(MediaType.IMAGE_JPEG)
                 .body(resource);
+    }
+    
+    @PostMapping("/save")
+    public ResponseEntity<Void> saveAnnotations(@RequestBody SaveAnnotationsRequest request,
+                                                @AuthenticationPrincipal String email) {
+        Long userId = userService.findUserIdByEmail(email);
+        datasetService.saveAnnotationsAndPrepareYolo(request, userId);
+        return ResponseEntity.ok().build();
+    }
+    
+    @DeleteMapping("/{datasetId}")
+    public ResponseEntity<Void> deleteDataset(
+            @PathVariable Long datasetId,
+            @AuthenticationPrincipal String email
+    ) {
+        Long userId = userService.findUserIdByEmail(email);
+        datasetService.deleteDataset(datasetId, userId);
+        return ResponseEntity.noContent().build(); // 204
     }
 
     public record CreateDatasetResponse(Long datasetId, Long versionId, String versionTag) {}

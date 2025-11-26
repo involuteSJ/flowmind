@@ -30,10 +30,17 @@ public class Asset {
     @JoinColumn(name = "dataset_version_id", nullable = false)
     private DatasetVersion datasetVersion;
     
+    @Column(name="split")
+    private String split; 
+    
     @OneToMany(mappedBy = "asset", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Annotation> annotations = new ArrayList<>();
 
     public void setDatasetVersion(DatasetVersion datasetVersion) {
         this.datasetVersion = datasetVersion;
+    }
+    
+    public void setSplit(String split) {
+    	this.split = split;
     }
 }
