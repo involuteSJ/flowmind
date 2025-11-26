@@ -1,4 +1,3 @@
-"use client"
 
 import type React from "react"
 
@@ -10,8 +9,8 @@ import { Input } from "@/components/ui/input"
 
 interface Annotation {
   id: string
-  x: number
-  y: number
+  xCenter: number
+  yCenter: number
   width: number
   height: number
   label: string
@@ -24,11 +23,17 @@ interface ImageAnnotations {
 
 interface SelfAnnotationModalProps {
   images: Array<{ id: string; preview: string }>
+  initialAnnotations?: Record<string, Annotation[]>
   onClose: () => void
   onSave: (annotations: ImageAnnotations[]) => void
 }
 
-export function SelfAnnotationModal({ images, onClose, onSave }: SelfAnnotationModalProps) {
+export function SelfAnnotationModal({ 
+  images,
+  initialAnnotations,
+  onClose,
+  onSave, 
+}: SelfAnnotationModalProps) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [allAnnotations, setAllAnnotations] = useState<Record<string, Annotation[]>>({})
   const [isDrawing, setIsDrawing] = useState(false)
@@ -40,17 +45,38 @@ export function SelfAnnotationModal({ images, onClose, onSave }: SelfAnnotationM
   const imageContainerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const imgRef = useRef<HTMLImageElement>(null)
+
+  const [imageUrl, setImageUrl] = useState<string | null>(null)
+  const [imageError, setImageError] = useState<string | null>(null)
+  const [isImageLoading, setIsImageLoading] = useState(false)
+  const [canvasSize, setCanvasSize] = useState<{ width: number; height: number }>({
+    width: 0,
+    height: 0,
+  })
 
   const currentImage = images[currentIndex]
 
   // Initialize annotations
   useEffect(() => {
     const initialized: Record<string, Annotation[]> = {}
+  
     images.forEach((img) => {
-      initialized[img.id] = []
+      const existing = initialAnnotations?.[String(img.id)] ?? []
+      // 깊은 복사까지는 과하지 않아도 되고, 배열 복사만 해도 충분
+      initialized[String(img.id)] = existing.map((ann) => ({
+        // 백엔드에서 받은 id를 그냥 string으로 쓰거나
+        id: String(ann.id ?? crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)),
+        xCenter: ann.xCenter,
+        yCenter: ann.yCenter,
+        width: ann.width,
+        height: ann.height,
+        label: ann.label,
+      }))
     })
+  
     setAllAnnotations(initialized)
-  }, [images])
+  }, [images, initialAnnotations])
 
   // Focus input when it appears
   useEffect(() => {
@@ -59,48 +85,75 @@ export function SelfAnnotationModal({ images, onClose, onSave }: SelfAnnotationM
     }
   }, [showLabelInput])
 
+  // Draw Annotation when user change window size
+  useEffect(() => {
+    const updateCanvasSize = () => {
+      if (!imageContainerRef.current) return
+      const container = imageContainerRef.current.getBoundingClientRect()
+  
+      // ✅ 캔버스 사이즈는 여기선 state만 업데이트
+      setCanvasSize({
+        width: container.width,
+        height: container.height,
+      })
+    }
+  
+    updateCanvasSize() // 처음 한 번
+  
+    window.addEventListener("resize", updateCanvasSize)
+    return () => window.removeEventListener("resize", updateCanvasSize)
+  }, [currentImage.id])
+  
+
   // Draw annotations on canvas
   useEffect(() => {
     const canvas = canvasRef.current
-    if (!canvas || !imageContainerRef.current) return
-
+    if (!canvas) return
+  
+    // ✅ 아직 사이즈 계산 안됐으면 그리지 않음
+    if (!canvasSize.width || !canvasSize.height) return
+  
     const ctx = canvas.getContext("2d")
     if (!ctx) return
-
-    const container = imageContainerRef.current
-    canvas.width = container.offsetWidth
-    canvas.height = container.offsetHeight
-
+  
+    // ✅ 항상 canvasSize 기준으로 캔버스 크기 설정
+    canvas.width = canvasSize.width
+    canvas.height = canvasSize.height
+  
     ctx.clearRect(0, 0, canvas.width, canvas.height)
-
+  
     // Draw existing annotations
     const currentAnnotations = allAnnotations[currentImage.id] || []
     currentAnnotations.forEach((annotation) => {
       const isSelected = selectedAnnotationId === annotation.id
       ctx.strokeStyle = isSelected ? "#06b6d4" : "#0891b2"
       ctx.lineWidth = isSelected ? 3 : 2
-      ctx.strokeRect(annotation.x, annotation.y, annotation.width, annotation.height)
-
-      // Draw label background
+  
+      const boxW = annotation.width * canvas.width
+      const boxH = annotation.height * canvas.height
+      const boxX = (annotation.xCenter - annotation.width / 2) * canvas.width
+      const boxY = (annotation.yCenter - annotation.height / 2) * canvas.height
+  
+      ctx.strokeRect(boxX, boxY, boxW, boxH)
+  
       const labelText = annotation.label
       const fontHeight = 16
       const padding = 4
       const textWidth = ctx.measureText(labelText).width
-
+  
       ctx.fillStyle = isSelected ? "#06b6d4" : "#0891b2"
       ctx.fillRect(
-        annotation.x,
-        annotation.y - fontHeight - padding * 2,
+        boxX,
+        Math.max(0, boxY - fontHeight - padding * 2),
         textWidth + padding * 2,
         fontHeight + padding * 2,
       )
-
+  
       ctx.fillStyle = "#000"
       ctx.font = "14px sans-serif"
-      ctx.fillText(labelText, annotation.x + padding, annotation.y - padding)
+      ctx.fillText(labelText, boxX + padding, Math.max(padding, boxY - padding))
     })
-
-    // Draw current drawing rectangle
+  
     if (currentRect) {
       ctx.strokeStyle = "#06b6d4"
       ctx.lineWidth = 2
@@ -108,7 +161,61 @@ export function SelfAnnotationModal({ images, onClose, onSave }: SelfAnnotationM
       ctx.strokeRect(currentRect.x, currentRect.y, currentRect.width, currentRect.height)
       ctx.setLineDash([])
     }
-  }, [allAnnotations, currentImage.id, selectedAnnotationId, currentRect])
+  }, [allAnnotations, currentImage.id, selectedAnnotationId, currentRect, canvasSize])
+  
+
+  // ✅ 현재 이미지(blob) 로드 (Authorization 헤더 포함)
+  useEffect(() => {
+    if (!currentImage?.preview) return
+
+    const controller = new AbortController()
+    const token = localStorage.getItem("accessToken")
+
+    const loadImage = async () => {
+      try {
+        setIsImageLoading(true)
+        setImageError(null)
+
+        const res = await fetch(currentImage.preview, {
+          method: "GET",
+          signal: controller.signal,
+          headers: token
+            ? {
+                Authorization: `Bearer ${token}`,
+              }
+            : {},
+        })
+
+        if (!res.ok) {
+          throw new Error(`이미지 로드 실패 (${res.status})`)
+        }
+
+        const blob = await res.blob()
+        const url = URL.createObjectURL(blob)
+
+        // 이전 URL 정리 후 새 URL 설정
+        setImageUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev)
+          return url
+        })
+      } catch (err: any) {
+        if (err.name === "AbortError") return
+        console.error("이미지 로드 실패:", err)
+        setImageError(err.message ?? "이미지를 불러오지 못했습니다.")
+        setImageUrl(null)
+      } finally {
+        setIsImageLoading(false)
+      }
+    }
+
+    loadImage()
+
+    return () => {
+      controller.abort()
+      // URL 정리는 setImageUrl에서 이전 값을 revoke하고 있으니 여기선 생략 가능
+    }
+  }, [currentImage?.id, currentImage?.preview])
+  
 
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!imageContainerRef.current) return
@@ -154,36 +261,58 @@ export function SelfAnnotationModal({ images, onClose, onSave }: SelfAnnotationM
   }
 
   const handleAddAnnotation = () => {
-    if (!currentRect || !labelValue.trim()) return
-
-    const normalizedRect = {
-      x: currentRect.width < 0 ? currentRect.x + currentRect.width : currentRect.x,
-      y: currentRect.height < 0 ? currentRect.y + currentRect.height : currentRect.y,
-      width: Math.abs(currentRect.width),
-      height: Math.abs(currentRect.height),
-    }
-
+    if (!currentRect || !labelValue.trim() || !imageContainerRef.current) return
+  
+    const container = imageContainerRef.current
+    const cw = container.offsetWidth
+    const ch = container.offsetHeight
+    if (!cw || !ch) return
+  
+    // 🔥 드래그 방향에 상관없이 왼쪽 위(xPx, yPx), 폭/높이(wPx, hPx) 픽셀 값 계산
+    const xPx = currentRect.width < 0 ? currentRect.x + currentRect.width : currentRect.x
+    const yPx = currentRect.height < 0 ? currentRect.y + currentRect.height : currentRect.y
+    const wPx = Math.abs(currentRect.width)
+    const hPx = Math.abs(currentRect.height)
+  
+    // 0~1 사이로 정규화 + center 좌표 계산
+    const xCenter = (xPx + wPx / 2) / cw
+    const yCenter = (yPx + hPx / 2) / ch
+    const width = wPx / cw
+    const height = hPx / ch
+  
+    const clamp01 = (v: number) => Math.max(0, Math.min(1, v))
+  
     const newAnnotation: Annotation = {
-      id: Math.random().toString(36).substr(2, 9),
-      ...normalizedRect,
+      id: crypto.randomUUID?.() ?? Math.random().toString(36).slice(2),
+      xCenter: clamp01(xCenter),
+      yCenter: clamp01(yCenter),
+      width: clamp01(width),
+      height: clamp01(height),
       label: labelValue.trim(),
     }
-
+  
     setAllAnnotations((prev) => ({
       ...prev,
       [currentImage.id]: [...(prev[currentImage.id] || []), newAnnotation],
     }))
-
+  
     setCurrentRect(null)
     setShowLabelInput(false)
     setLabelValue("")
-  }
+  }  
 
   const handleCancel = () => {
     setCurrentRect(null)
     setShowLabelInput(false)
     setLabelValue("")
   }
+
+  const resetDrawingState = () => {
+    setCurrentRect(null)
+    setSelectedAnnotationId(null)
+    setShowLabelInput(false)
+    setLabelValue("")
+  }  
 
   const handleRemoveAnnotation = (annotationId: string) => {
     setAllAnnotations((prev) => ({
@@ -194,21 +323,19 @@ export function SelfAnnotationModal({ images, onClose, onSave }: SelfAnnotationM
   }
 
   const handleNext = () => {
-    if (currentIndex < images.length - 1) {
-      setCurrentIndex(currentIndex + 1)
-      setSelectedAnnotationId(null)
-      setCurrentRect(null)
-      setShowLabelInput(false)
-    }
+    setCurrentIndex((prev) => {
+      if (prev >= images.length - 1) return prev
+      resetDrawingState()
+      return prev + 1
+    })
   }
-
+  
   const handlePrev = () => {
-    if (currentIndex > 0) {
-      setCurrentIndex(currentIndex - 1)
-      setSelectedAnnotationId(null)
-      setCurrentRect(null)
-      setShowLabelInput(false)
-    }
+    setCurrentIndex((prev) => {
+      if (prev <= 0) return prev
+      resetDrawingState()
+      return prev - 1
+    })
   }
 
   const handleSave = () => {
@@ -245,11 +372,30 @@ export function SelfAnnotationModal({ images, onClose, onSave }: SelfAnnotationM
             {/* Canvas Area */}
             <div className="col-span-3">
               <div className="relative w-full bg-black rounded-lg overflow-hidden border-2 border-border">
+              {imageUrl ? (
                 <img
-                  src={currentImage.preview || "/placeholder.svg"}
+                  ref={imgRef}
+                  src={imageUrl}
                   alt={`Image ${currentIndex + 1}`}
                   className="w-full h-auto block"
+                  onLoad={() => {
+                    // ✅ 이미지가 실제로 로드된 시점에 컨테이너 크기 재측정
+                    if (!imageContainerRef.current) return
+                    const container = imageContainerRef.current.getBoundingClientRect()
+                    setCanvasSize({
+                      width: container.width,
+                      height: container.height,
+                    })
+                  }}
                 />
+              ) : (
+                  <div className="w-full aspect-video flex items-center justify-center text-xs text-muted-foreground">
+                    {isImageLoading
+                      ? "이미지를 불러오는 중입니다..."
+                      : imageError ?? "이미지를 불러올 수 없습니다."}
+                  </div>
+                )}
+
                 <div ref={imageContainerRef} className="absolute inset-0">
                   <canvas
                     ref={canvasRef}
@@ -341,7 +487,7 @@ export function SelfAnnotationModal({ images, onClose, onSave }: SelfAnnotationM
                       >
                         <div className="font-semibold text-accent truncate">{annotation.label}</div>
                         <div className="text-muted-foreground text-xs">
-                          ({Math.round(annotation.x)}, {Math.round(annotation.y)})
+                          ({Math.round(annotation.xCenter * 100)}%, {Math.round(annotation.yCenter * 100)}%)
                         </div>
                         <button
                           onClick={(e) => {

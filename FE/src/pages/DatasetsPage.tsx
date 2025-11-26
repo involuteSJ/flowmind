@@ -46,6 +46,7 @@ export default function DatasetsPage() {
 
   // --- 새 데이터셋 생성 상태 ---
   const [datasetName, setDatasetName] = useState("")
+  const [datasetDescription, setDatasetDescription] = useState("")
   const [images, setImages] = useState<UploadedImage[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
@@ -152,6 +153,7 @@ export default function DatasetsPage() {
       const token = localStorage.getItem("accessToken")
   
       formData.append("name", datasetName.trim())
+      formData.append("description", datasetDescription.trim())
       images.forEach((img) => {
         formData.append("images", img.file)
       })
@@ -363,10 +365,23 @@ export default function DatasetsPage() {
               <div className="space-y-2">
                 <label className="text-xs font-medium">Dataset Name</label>
                 <Input
-                  placeholder="예: warehouse_cctv_v1"
+                  placeholder="예: dog"
                   value={datasetName}
                   onChange={(e) => {
                     setDatasetName(e.target.value)
+                    setSuccessMessage(null)
+                  }}
+                  className="h-8 text-sm"
+                />
+              </div>
+              {/* 데이터셋 설명 */}
+              <div className="space-y-2">
+                <label className="text-xs font-medium">Dataset Description</label>
+                <Input
+                  placeholder="예: this is dog dataset"
+                  value={datasetDescription}
+                  onChange={(e) => {
+                    setDatasetDescription(e.target.value)
                     setSuccessMessage(null)
                   }}
                   className="h-8 text-sm"
