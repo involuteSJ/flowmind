@@ -46,6 +46,7 @@ export default function DatasetsPage() {
 
   // --- 새 데이터셋 생성 상태 ---
   const [datasetName, setDatasetName] = useState("")
+  const [selectedVersions, setSelectedVersions] = useState<Record<string, string>>({})
   const [datasetDescription, setDatasetDescription] = useState("")
   const [images, setImages] = useState<UploadedImage[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -90,6 +91,13 @@ export default function DatasetsPage() {
   useEffect(() => {
     fetchDatasets()
   }, [])
+
+  const handleVersionChange = (datasetId: number, versionTag: string) => {
+    setSelectedVersions((prev) => ({
+      ...prev,
+      [String(datasetId)]: versionTag,
+    }))
+  }
 
   // -----------------------------
   // 2. 파일 선택/관리
@@ -299,23 +307,29 @@ export default function DatasetsPage() {
                     </thead>
                     <tbody>
                       {datasets.map((ds) => {
-                        const latestVersion = ds.versions?.[0] ?? null;
+                        const latestVersion = ds.versions?.[0] ?? null
+                        const selectedVersionTag =
+                          selectedVersions[String(ds.id)] ?? latestVersion?.versionTag
+
+                        const selectedVersion =
+                          ds.versions.find((v) => v.versionTag === selectedVersionTag) ?? latestVersion
 
                         return (
                           <tr key={ds.id} className="border-b last:border-b-0">
                             {/* Dataset Name */}
                             <td className="py-2 pr-2 font-medium">{ds.name}</td>
 
-                            {/* Image Count -> assetsCount */}
+                            {/* Image Count */}
                             <td className="py-2 pr-2">
-                              {latestVersion ? latestVersion.assetsCount : 0}
+                              {selectedVersion ? selectedVersion.assetsCount : 0}
                             </td>
 
-                            {/* Status -> versionTag (dropdown) */}
+                            {/* Version 선택 셀렉트 */}
                             <td className="py-2 pr-2">
                               <select
                                 className="border rounded px-2 py-1 text-xs"
-                                defaultValue={latestVersion?.versionTag}
+                                value={selectedVersionTag}
+                                onChange={(e) => handleVersionChange(ds.id, e.target.value)}
                               >
                                 {ds.versions.map((v) => (
                                   <option key={v.id} value={v.versionTag}>
@@ -327,23 +341,34 @@ export default function DatasetsPage() {
 
                             {/* CreatedAt */}
                             <td className="py-2 text-xs text-muted-foreground">
-                              {latestVersion
-                                ? new Date(latestVersion.createdAt).toLocaleString()
+                              {selectedVersion
+                                ? new Date(selectedVersion.createdAt).toLocaleString()
                                 : "-"}
                             </td>
+
+                            {/* Details 버튼 */}
                             <td className="py-2 pr-2">
                               <button
                                 className="text-xs underline text-accent"
-                                onClick={() => navigate(
-                                  `/annotate/${latestVersion?.id}?datasetId=${ds.id}&version=${latestVersion?.versionTag}`,
-                                )}
+                                onClick={() => {
+                                  if (!selectedVersion) {
+                                    alert("선택된 버전 정보가 없습니다.")
+                                    return
+                                  }
+                                  navigate(
+                                    `/annotate/${selectedVersion.id}?datasetId=${ds.id}&version=${encodeURIComponent(
+                                      selectedVersion.versionTag,
+                                    )}`,
+                                  )
+                                }}
                               >
                                 Details
                               </button>
                             </td>
                           </tr>
-                        );
+                        )
                       })}
+
                     </tbody>
                   </table>
                 </div>
