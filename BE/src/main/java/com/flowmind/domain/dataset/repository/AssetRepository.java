@@ -25,4 +25,6 @@ public interface AssetRepository extends JpaRepository<Asset, Long> {
 
     // ★ 추가: 버전 + 파일명 기준으로 Asset 조회
     Optional<Asset> findByDatasetVersionAndName(DatasetVersion version, String name);
+    
+    long countByDatasetVersionAndSplit(DatasetVersion version, String split);
 }

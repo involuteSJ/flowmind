@@ -102,6 +102,21 @@ public class DatasetController {
         datasetService.deleteDataset(datasetId, userId);
         return ResponseEntity.noContent().build(); // 204
     }
+    
+    @PostMapping(
+            value = "/assets/{datasetId}/{versionTag}",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
+    public ResponseEntity<Void> uploadAssetsToVersion(
+            @PathVariable Long datasetId,
+            @PathVariable String versionTag,
+            @RequestPart("images") List<MultipartFile> images,
+            @AuthenticationPrincipal String email
+    ) {
+        Long userId = userService.findUserIdByEmail(email);
+        datasetService.uploadAssetsToVersion(datasetId, versionTag, images, userId);
+        return ResponseEntity.ok().build();
+    }
 
     public record CreateDatasetResponse(Long datasetId, Long versionId, String versionTag) {}
 }

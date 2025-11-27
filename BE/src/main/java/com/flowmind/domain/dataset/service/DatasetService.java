@@ -6,6 +6,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flowmind.domain.dataset.dto.AnnotationDto;
 import com.flowmind.domain.dataset.dto.DatasetDetailResponse;
 import com.flowmind.domain.dataset.dto.DatasetResponse;
@@ -14,6 +16,7 @@ import com.flowmind.domain.dataset.dto.SaveAnnotationsRequest;
 import com.flowmind.domain.dataset.entity.*;
 import com.flowmind.domain.dataset.repository.*;
 import com.flowmind.domain.user.entity.User;
+import com.flowmind.domain.user.service.UserService;
 import com.flowmind.util.CurrentUserProvider;
 
 import java.io.IOException;
@@ -37,9 +40,12 @@ public class DatasetService {
     private final CurrentUserProvider currentUserProvider;
     private final LabelClassRepository labelClassRepository;
     private final AnnotationRepository annotationRepository;
+    private final UserService userService;
 
     @Value("${app.dataset.root-path}")
     private String datasetRootPath;
+    
+    private ObjectMapper objectMapper = new ObjectMapper();
     
     private Path resolveDatasetDir(Dataset dataset) {
         Long userId = dataset.getUserId();
@@ -60,6 +66,69 @@ public class DatasetService {
         Dataset dataset = version.getDataset();
         String versionTag = version.getVersionTag();
         return resolveDatasetDir(dataset).resolve(versionTag);
+    }
+    
+    /** ratio JSON -> (train, val, test) */
+    private static class SplitRatio {
+        double train;
+        double val;
+        double test;
+
+        SplitRatio(double train, double val, double test) {
+            this.train = train;
+            this.val = val;
+            this.test = test;
+        }
+    }
+    
+    private SplitRatio resolveSplitRatio(DatasetVersion version) {
+        String ratioJson = version.getRatio(); // JSON string or null
+
+        if (ratioJson == null || ratioJson.isBlank()) {
+            // 기본 7:2:1
+            return new SplitRatio(0.7, 0.2, 0.1);
+        }
+        try {
+            JsonNode node = objectMapper.readTree(ratioJson);
+            double train = node.path("train").asDouble(0.7);
+            double val   = node.path("val").asDouble(0.2);
+            double test  = node.path("test").asDouble(0.1);
+            double sum   = train + val + test;
+            if (sum <= 0) {
+                return new SplitRatio(0.7, 0.2, 0.1);
+            }
+            return new SplitRatio(train / sum, val / sum, test / sum);
+        } catch (Exception e) {
+            // 파싱 실패하면 기본값
+            return new SplitRatio(0.7, 0.2, 0.1);
+        }
+    }
+    
+    /** 현재 개수와 ratio를 보고 어느 split으로 넣을지 선택 */
+    private String decideSplit(long trainCnt, long valCnt, long testCnt, SplitRatio ratio) {
+        long total = trainCnt + valCnt + testCnt;
+
+        if (total == 0) {
+            return "train"; // 첫 이미지는 train부터
+        }
+
+        double curTrainRatio = (double) trainCnt / total;
+        double curValRatio   = (double) valCnt / total;
+        double curTestRatio  = (double) testCnt / total;
+
+        // "목표 대비 부족한 정도" 계산
+        double trainGap = ratio.train - curTrainRatio;
+        double valGap   = ratio.val   - curValRatio;
+        double testGap  = ratio.test  - curTestRatio;
+
+        // 가장 부족한 split을 선택
+        if (trainGap >= valGap && trainGap >= testGap) {
+            return "train";
+        } else if (valGap >= trainGap && valGap >= testGap) {
+            return "val";
+        } else {
+            return "test";
+        }
     }
 
     @Transactional
@@ -139,6 +208,159 @@ public class DatasetService {
         // 항상 v0 반환
         return version;
     }
+    
+    /**
+     * /api/datasets/assets/{datasetId}/{versionTag}
+     *
+     * - 업로드된 이미지를 v0 원본에 저장 (없으면 생성)
+     * - 요청 버전(versionTag)에 대해 train/val/test 비율을 보고 split 결정
+     * - 해당 버전에 Asset + 로컬 저장 (v0에서 복사)
+     */
+    @Transactional
+    public void uploadAssetsToVersion(
+            Long datasetId,
+            String versionTag,
+            List<MultipartFile> files,
+            Long userId
+    ) {
+        if (files == null || files.isEmpty()) {
+            throw new IllegalArgumentException("업로드할 이미지가 없습니다.");
+        }
+        if (versionTag == null || versionTag.isBlank()) {
+            throw new IllegalArgumentException("versionTag가 필요합니다.");
+        }
+
+        // 1. Dataset 확인 + 소유자 검증
+        Dataset dataset = datasetRepository.findById(datasetId)
+                .orElseThrow(() -> new IllegalArgumentException("데이터셋을 찾을 수 없습니다."));
+        if (!dataset.getUserId().equals(userId)) {
+            throw new IllegalArgumentException("본인의 데이터셋만 수정할 수 있습니다.");
+        }
+
+        // 2. v0 버전 찾기 or 생성 (원본 저장소)
+        DatasetVersion v0 = datasetVersionRepository
+                .findByDatasetIdAndVersionAndUser(datasetId, "v0", userId)
+                .orElseGet(() -> {
+                    DatasetVersion v = DatasetVersion.builder()
+                            .versionTag("v0")
+                            .build();
+                    v.setDataset(dataset);
+                    return datasetVersionRepository.save(v);
+                });
+
+        Path v0Dir = resolveVersionDir(v0);
+        try {
+            Files.createDirectories(v0Dir);
+        } catch (IOException e) {
+            throw new RuntimeException("v0 디렉터리 생성 실패: " + v0Dir, e);
+        }
+
+        // 3. 요청 버전(versionTag) 찾기 or 생성
+        DatasetVersion targetVersion = datasetVersionRepository
+                .findByDatasetIdAndVersionAndUser(datasetId, versionTag, userId)
+                .orElseGet(() -> {
+                    DatasetVersion v = DatasetVersion.builder()
+                            .versionTag(versionTag)
+                            .build();
+                    v.setDataset(dataset);
+                    return datasetVersionRepository.save(v);
+                });
+
+        Path targetDir = resolveVersionDir(targetVersion);
+        try {
+            Files.createDirectories(targetDir);
+        } catch (IOException e) {
+            throw new RuntimeException("버전 디렉터리 생성 실패: " + targetDir, e);
+        }
+
+        // 4. ratio + 현재 split 비율 계산
+        SplitRatio ratio = resolveSplitRatio(targetVersion);
+
+        long trainCnt = assetRepository.countByDatasetVersionAndSplit(targetVersion, "train");
+        long valCnt   = assetRepository.countByDatasetVersionAndSplit(targetVersion, "val");
+        long testCnt  = assetRepository.countByDatasetVersionAndSplit(targetVersion, "test");
+
+        // 5. 파일마다 처리
+        for (MultipartFile file : files) {
+            String originalFilename = file.getOriginalFilename();
+            if (originalFilename == null || originalFilename.isBlank()) {
+                continue;
+            }
+
+            // 5-1. v0에 이미 같은 이름이 있는지 확인
+            Optional<Asset> optV0Asset = assetRepository.findByDatasetVersionAndName(v0, originalFilename);
+
+            Asset v0Asset;
+            Path v0ImagePath;
+            if (optV0Asset.isPresent()) {
+                v0Asset = optV0Asset.get();
+                v0ImagePath = Paths.get(v0Asset.getStorageUri());
+            } else {
+                // v0에 새 파일 저장
+                v0ImagePath = v0Dir.resolve(originalFilename);
+                try {
+                    file.transferTo(v0ImagePath.toFile());
+                } catch (IOException e) {
+                    throw new RuntimeException("v0 저장 실패: " + originalFilename, e);
+                }
+
+                v0Asset = Asset.builder()
+                        .name(originalFilename)
+                        .storageUri(v0ImagePath.toString())
+                        .split(null) // v0는 split 없음 (원본)
+                        .build();
+                v0Asset.setDatasetVersion(v0);
+                v0Asset = assetRepository.save(v0Asset);
+            }
+
+            // 5-2. target 버전에 이미 같은 이름의 Asset이 있으면 스킵
+            Optional<Asset> optTargetAsset =
+                    assetRepository.findByDatasetVersionAndName(targetVersion, originalFilename);
+            if (optTargetAsset.isPresent()) {
+                continue;
+            }
+
+            // 5-3. split 결정
+            String split = decideSplit(trainCnt, valCnt, testCnt, ratio);
+
+            // 결정된 split 카운트 증가
+            switch (split) {
+                case "train" -> trainCnt++;
+                case "val"   -> valCnt++;
+                case "test"  -> testCnt++;
+            }
+
+            // 5-4. target 버전 디렉터리에 이미지 복사
+            Path targetImagePath = targetDir.resolve(originalFilename);
+            try {
+                Files.copy(v0ImagePath, targetImagePath, StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException e) {
+                throw new RuntimeException(
+                        "버전 디렉터리 복사 실패: " + v0ImagePath + " -> " + targetImagePath, e);
+            }
+
+            // 5-5. target 버전에 Asset 생성 (split 포함)
+            Asset targetAsset = Asset.builder()
+                    .name(originalFilename)
+                    .storageUri(targetImagePath.toString())
+                    .split(split)
+                    .build();
+            targetAsset.setDatasetVersion(targetVersion);
+            assetRepository.save(targetAsset);
+        }
+
+        // 6. dataset_version의 train/val/test 카운트 필드 업데이트
+        targetVersion.setTrainCnt((int) trainCnt);
+        targetVersion.setValidCnt((int) valCnt);
+        targetVersion.setTestCnt((int) testCnt);
+        datasetVersionRepository.save(targetVersion);
+
+        // 7. 필요하면 여기서 바로 YOLO 폴더(data.yaml 포함) 재생성 호출 가능
+        //    (지금 구조를 유지하려면, 라벨링까지 끝나고 /save 호출할 때 prepareYoloFoldersAndYaml을 돌리는 게 자연스럽고,
+        //     여기서는 "이미지/asset 준비"까지만 하는 것도 방법)
+        // prepareYoloFoldersAndYaml(targetVersion, ...);
+    }
+
     
     public DatasetDetailResponse getDatasetDetail(Long datasetId, String versionTag, Long userId) {
         DatasetVersion version = datasetVersionRepository
