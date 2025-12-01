@@ -20,29 +20,10 @@ USE `flowmind` ;
 CREATE TABLE IF NOT EXISTS `flowmind`.`user` (
   `user_id` INT NOT NULL AUTO_INCREMENT,
   `name` VARCHAR(45) NULL,
-  `password` VARCHAR(45) NULL,
+  `password` VARCHAR(255) NULL,
   `email` VARCHAR(45) NULL,
   `phone` VARCHAR(45) NULL,
   PRIMARY KEY (`user_id`))
-ENGINE = InnoDB;
-
-
--- -----------------------------------------------------
--- Table `flowmind`.`project`
--- -----------------------------------------------------
-CREATE TABLE IF NOT EXISTS `flowmind`.`project` (
-  `project_id` INT NOT NULL AUTO_INCREMENT,
-  `name` VARCHAR(45) NULL,
-  `description` MEDIUMTEXT NULL,
-  `created_at` DATETIME NULL,
-  `user_id` INT NOT NULL,
-  PRIMARY KEY (`project_id`, `user_id`),
-  INDEX `fk_Project_User_idx` (`user_id` ASC) VISIBLE,
-  CONSTRAINT `fk_Project_User`
-    FOREIGN KEY (`user_id`)
-    REFERENCES `flowmind`.`user` (`user_id`)
-    ON DELETE NO ACTION
-    ON UPDATE NO ACTION)
 ENGINE = InnoDB;
 
 
@@ -53,13 +34,12 @@ CREATE TABLE IF NOT EXISTS `flowmind`.`dataset` (
   `dataset_id` INT NOT NULL AUTO_INCREMENT,
   `name` VARCHAR(45) NULL,
   `description` MEDIUMTEXT NULL,
-  `project_id` INT NOT NULL,
   `user_id` INT NOT NULL,
-  PRIMARY KEY (`dataset_id`, `project_id`, `user_id`),
-  INDEX `fk_Dataset_Project1_idx` (`project_id` ASC, `user_id` ASC) VISIBLE,
-  CONSTRAINT `fk_Dataset_Project1`
-    FOREIGN KEY (`project_id` , `user_id`)
-    REFERENCES `flowmind`.`project` (`project_id` , `user_id`)
+  PRIMARY KEY (`dataset_id`, `user_id`),
+  INDEX `fk_dataset_user1_idx` (`user_id` ASC) VISIBLE,
+  CONSTRAINT `fk_dataset_user1`
+    FOREIGN KEY (`user_id`)
+    REFERENCES `flowmind`.`user` (`user_id`)
     ON DELETE NO ACTION
     ON UPDATE NO ACTION)
 ENGINE = InnoDB;
@@ -131,20 +111,24 @@ ENGINE = InnoDB;
 CREATE TABLE IF NOT EXISTS `flowmind`.`annotation` (
   `annotation_id` INT NOT NULL AUTO_INCREMENT,
   `storage_uri` MEDIUMTEXT NULL,
-  `geometry` MEDIUMTEXT NULL,
+  `x_center` DOUBLE NULL,
+  `y_center` DOUBLE NULL,
+  `width` DOUBLE NULL,
+  `height` DOUBLE NULL,
   `asset_id` INT NOT NULL,
   `class_id` INT NOT NULL,
-  PRIMARY KEY (`annotation_id`, `asset_id`, `class_id`),
+  `dataset_version_id` INT NOT NULL,
+  PRIMARY KEY (`annotation_id`, `asset_id`, `class_id`, `dataset_version_id`),
   INDEX `fk_annotation_asset1_idx` (`asset_id` ASC) VISIBLE,
-  INDEX `fk_annotation_label_class1_idx` (`class_id` ASC) VISIBLE,
+  INDEX `fk_annotation_label_class1_idx` (`class_id` ASC, `dataset_version_id` ASC) VISIBLE,
   CONSTRAINT `fk_annotation_asset1`
     FOREIGN KEY (`asset_id`)
     REFERENCES `flowmind`.`asset` (`asset_id`)
     ON DELETE NO ACTION
     ON UPDATE NO ACTION,
   CONSTRAINT `fk_annotation_label_class1`
-    FOREIGN KEY (`class_id`)
-    REFERENCES `flowmind`.`label_class` (`class_id`)
+    FOREIGN KEY (`class_id` , `dataset_version_id`)
+    REFERENCES `flowmind`.`label_class` (`class_id` , `dataset_version_id`)
     ON DELETE NO ACTION
     ON UPDATE NO ACTION)
 ENGINE = InnoDB;
