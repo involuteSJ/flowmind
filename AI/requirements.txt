@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+httpx
+ultralytics>=8.0.0

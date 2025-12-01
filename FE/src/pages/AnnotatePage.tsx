@@ -295,7 +295,10 @@ export default function AnnotatePage() {
 
         const token = localStorage.getItem("accessToken")
 
-        const headers: HeadersInit = {}
+        const headers: HeadersInit = {
+          Accept: "application/json",  // 👈 JSON 요청 명시
+        }
+
         if (token) {
           headers["Authorization"] = `Bearer ${token}`
         }
@@ -314,7 +317,17 @@ export default function AnnotatePage() {
         }
 
         if (!res.ok) {
+          const text = await res.text()
+          console.error("서버 에러 응답:", text)
           throw new Error(`서버 오류 (${res.status})`)
+        }
+
+        // 👇 여기서 JSON인지 한 번 더 검사 (login HTML 같은 것 방지)
+        const contentType = res.headers.get("content-type") ?? ""
+        if (!contentType.includes("application/json")) {
+          const text = await res.text()
+          console.error("JSON 이 아닌 응답:", text.slice(0, 200))
+          throw new Error("서버에서 JSON이 아닌 응답을 받았습니다. (아마 로그인/에러 페이지일 가능성)")
         }
 
         const data = (await res.json()) as DatasetDetail
