@@ -1,2 +1,70 @@
-# virtual env
-.venv/
+# ========================
+# FlowMind Root .gitignore
+# ========================
+
+# ─── OS ───────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── IDE ──────────────────────────────────────────────
+.idea/
+*.iml
+.vscode/
+*.suo
+*.user
+
+# ========================
+# Backend (Spring Boot)
+# ========================
+BE/target/
+BE/*.log
+
+# 민감 설정 파일 (example 파일만 올림)
+BE/src/main/resources/application.properties
+BE/src/main/resources/application-*.properties
+!BE/src/main/resources/application.properties.example
+
+# 데이터셋 / 모델 파일
+BE/datasets/
+BE/models/
+
+# ========================
+# Frontend (Vite + React)
+# ========================
+FE/node_modules/
+FE/dist/
+FE/.env
+FE/.env.local
+FE/.env.*.local
+!FE/.env.example
+
+# ========================
+# AI Server (FastAPI)
+# ========================
+ai-server/.venv/
+ai-server/__pycache__/
+ai-server/**/__pycache__/
+ai-server/**/*.pyc
+ai-server/**/*.pyo
+
+# 민감 환경 변수 (example만 올림)
+ai-server/.env
+!ai-server/.env.example
+
+# 임시 데이터셋 / 모델 출력
+ai-server/temp/
+ai-server/runs/
+
+# YOLO 학습 결과물
+models/
+runs/
+
+# ========================
+# Python 공통
+# ========================
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/

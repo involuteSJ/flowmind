@@ -3,11 +3,8 @@ package com.flowmind.domain.dataset.entity;
 import jakarta.persistence.*;
 import lombok.*;
 
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-
-import com.flowmind.domain.user.entity.User;
 
 @Entity
 @Table(name = "dataset")
@@ -19,17 +16,20 @@ public class Dataset {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long datasetId;
+    @Column(name = "dataset_id")
+    private Integer datasetId;
 
-    @Column(nullable = false, length = 100)
+    @Column(nullable = false, length = 45)
     private String name;
 
-    // 어떤 유저의 데이터셋인지
-    @Column(name="user_id", nullable=false)
-    private Long userId;
-    
-    @Column(name="description")
+    @Column(name = "description", columnDefinition = "MEDIUMTEXT")
     private String description;
+
+    @Column(name = "project_id", nullable = false)
+    private Integer projectId;
+
+    @Column(name = "user_id", nullable = false)
+    private Integer userId;
 
     @OneToMany(mappedBy = "dataset", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<DatasetVersion> versions = new ArrayList<>();

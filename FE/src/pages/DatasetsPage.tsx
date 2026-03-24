@@ -43,6 +43,8 @@ export default function DatasetsPage() {
   const [datasets, setDatasets] = useState<DatasetSummary[]>([])
   const [isLoadingDatasets, setIsLoadingDatasets] = useState(false)
   const [datasetsError, setDatasetsError] = useState<string | null>(null)
+  const [dsPage, setDsPage] = useState(1)
+  const DS_PAGE_SIZE = 10
 
   // --- 새 데이터셋 생성 상태 ---
   const [datasetName, setDatasetName] = useState("")
@@ -276,7 +278,7 @@ export default function DatasetsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {datasets.map((ds) => {
+                      {datasets.slice((dsPage - 1) * DS_PAGE_SIZE, dsPage * DS_PAGE_SIZE).map((ds) => {
                         const latestVersion = ds.versions?.[0] ?? null;
 
                         return (
@@ -322,6 +324,39 @@ export default function DatasetsPage() {
                       })}
                     </tbody>
                   </table>
+
+                  {/* 페이징 */}
+                  {datasets.length > DS_PAGE_SIZE && (
+                    <div className="flex items-center justify-center gap-2 pt-4">
+                      <button
+                        onClick={() => setDsPage((p) => Math.max(1, p - 1))}
+                        disabled={dsPage === 1}
+                        className="px-3 py-1.5 text-sm rounded border border-border disabled:opacity-30 hover:bg-muted transition-colors"
+                      >
+                        이전
+                      </button>
+                      {Array.from({ length: Math.ceil(datasets.length / DS_PAGE_SIZE) }, (_, i) => (
+                        <button
+                          key={i + 1}
+                          onClick={() => setDsPage(i + 1)}
+                          className={`px-3 py-1.5 text-sm rounded border transition-colors ${
+                            dsPage === i + 1
+                              ? "bg-accent text-white border-accent"
+                              : "border-border hover:bg-muted"
+                          }`}
+                        >
+                          {i + 1}
+                        </button>
+                      ))}
+                      <button
+                        onClick={() => setDsPage((p) => Math.min(Math.ceil(datasets.length / DS_PAGE_SIZE), p + 1))}
+                        disabled={dsPage === Math.ceil(datasets.length / DS_PAGE_SIZE)}
+                        className="px-3 py-1.5 text-sm rounded border border-border disabled:opacity-30 hover:bg-muted transition-colors"
+                      >
+                        다음
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </Card>

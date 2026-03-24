@@ -5,6 +5,7 @@ import UploadPage from './pages/UploadPage'
 import AnnotatePage from './pages/AnnotatePage'
 import DatasetsPage from './pages/DatasetsPage'
 import TrainPage from './pages/TrainPage'
+import OptimizePage from './pages/OptimizePage'
 import EvaluatePage from './pages/EvaluatePage'
 
 function App() {
@@ -16,6 +17,7 @@ function App() {
         <Route path="/annotate/:versionId" element={<AnnotatePage />} />
         <Route path="/datasets" element={<DatasetsPage />} />
         <Route path="/train" element={<TrainPage />} />
+        <Route path="/optimize" element={<OptimizePage />} />
         <Route path="/evaluate" element={<EvaluatePage />} />
       </Routes>
     </ThemeProvider>

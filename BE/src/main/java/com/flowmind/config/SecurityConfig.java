@@ -3,7 +3,6 @@ package com.flowmind.config;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
-import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
@@ -39,17 +38,30 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         // 회원가입/로그인 API는 인증 없이 허용
                         .requestMatchers("/api/auth/**").permitAll()
-//                        .requestMatchers("/api/datasets/**").permitAll()
+                        // 이미지 태그(<img>)는 Authorization 헤더를 실어 보내기 어려워 공개 허용
+                        .requestMatchers(HttpMethod.GET, "/api/datasets/assets/**").permitAll()
+                        // AI Server 내부 콜백 (JWT 없이 호출)
+                        .requestMatchers(HttpMethod.POST, "/api/training/*/progress").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/training/*/complete").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/training/*/fail").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/evaluation/*/progress").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/evaluation/*/complete").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/evaluation/*/fail").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/optimization/*/progress").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/optimization/*/complete").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/optimization/*/fail").permitAll()
+                        .requestMatchers(HttpMethod.GET,  "/api/optimization/*/download").permitAll()
+                        // 모델 다운로드 (브라우저 직접 다운로드)
+                        .requestMatchers(HttpMethod.GET, "/api/training/*/download").permitAll()
                         .requestMatchers(
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**",
                                 "/v3/api-docs.yaml"
                         ).permitAll()
-                        // 그 외는 인증 필요 (나중에 조정 가능)
                         .anyRequest().authenticated()
                 )
-                // 테스트용 basic auth (나중에 JWT로 교체 가능)
-                .httpBasic(Customizer.withDefaults())
+                .httpBasic(httpBasic -> httpBasic.disable())
+                .formLogin(form -> form.disable())
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
@@ -61,7 +73,7 @@ public class SecurityConfig {
         CorsConfiguration config = new CorsConfiguration();
 
         // 프론트 주소 허용
-        config.setAllowedOrigins(List.of("http://localhost:3000"));
+        config.setAllowedOrigins(List.of("http://localhost:3000", "http://localhost:5173"));
 
         // 허용할 HTTP 메서드
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));

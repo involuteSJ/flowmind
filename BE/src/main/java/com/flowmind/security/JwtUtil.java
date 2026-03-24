@@ -10,14 +10,12 @@ import java.util.Date;
 @Component
 public class JwtUtil {
 
-    private static final long EXPIRATION_TIME = 1000 * 60 * 60 * 3; // 3시간
-    private static final String SECRET_KEY = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"; 
-    // 길이가 32바이트 이상 필요
+    private static final long EXPIRATION_TIME = 1000 * 60 * 60 * 3;
+    private static final String SECRET_KEY = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
     private final Key key = Keys.hmacShaKeyFor(SECRET_KEY.getBytes());
 
-    // 토큰 생성
-    public String createToken(Long userId, String email) {
+    public String createToken(Integer userId, String email) {
         return Jwts.builder()
                 .claim("id", userId)
                 .claim("email", email)
@@ -27,7 +25,6 @@ public class JwtUtil {
                 .compact();
     }
 
-    // 토큰에서 Claims 꺼내기
     public Claims getClaims(String token) {
         return Jwts.parserBuilder()
                 .setSigningKey(key)

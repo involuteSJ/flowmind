@@ -8,8 +8,17 @@ import org.springframework.data.repository.query.Param;
 
 import com.flowmind.domain.dataset.entity.DatasetVersion;
 
-public interface DatasetVersionRepository extends JpaRepository<DatasetVersion, Long>{
-	@Query("""
+public interface DatasetVersionRepository extends JpaRepository<DatasetVersion, Integer> {
+
+    @Query("""
+        SELECT dv
+        FROM DatasetVersion dv
+        JOIN FETCH dv.dataset
+        WHERE dv.datasetVersionId = :id
+    """)
+    Optional<DatasetVersion> findByIdWithDataset(@Param("id") Integer id);
+
+    @Query("""
         SELECT dv
         FROM DatasetVersion dv
         JOIN dv.dataset d
@@ -18,8 +27,8 @@ public interface DatasetVersionRepository extends JpaRepository<DatasetVersion, 
           AND d.userId = :userId
     """)
     Optional<DatasetVersion> findByDatasetIdAndVersionAndUser(
-            @Param("datasetId") Long datasetId,
+            @Param("datasetId") Integer datasetId,
             @Param("versionTag") String versionTag,
-            @Param("userId") Long userId
+            @Param("userId") Integer userId
     );
 }

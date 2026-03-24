@@ -1,10 +1,10 @@
 package com.flowmind.domain.dataset.entity;
 
-import java.util.ArrayList;
-import java.util.List;
-
 import jakarta.persistence.*;
 import lombok.*;
+
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "asset")
@@ -16,20 +16,19 @@ public class Asset {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long assetId;
+    @Column(name = "asset_id")
+    private Integer assetId;
 
-    // 이미지 파일 이름 (예: cat1.png)
-    @Column(nullable = false)
+    @Column(nullable = false, length = 255)
     private String name;
 
-    // 실제 파일 경로 (옵션이지만 있으면 편함)
-    @Column(name = "storage_uri")
+    @Column(name = "storage_uri", columnDefinition = "MEDIUMTEXT")
     private String storageUri;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "dataset_version_id", nullable = false)
     private DatasetVersion datasetVersion;
-    
+
     @OneToMany(mappedBy = "asset", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Annotation> annotations = new ArrayList<>();
 

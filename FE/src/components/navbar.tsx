@@ -22,6 +22,7 @@ export function Navbar() {
   const navItems = [
     { href: "/datasets", label: "Datasets" },
     { href: "/train", label: "Train" },
+    { href: "/optimize", label: "Optimize" },
     { href: "/evaluate", label: "Evaluate" },
   ]
 

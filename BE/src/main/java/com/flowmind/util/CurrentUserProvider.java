@@ -1,6 +1,5 @@
 package com.flowmind.util;
 
-
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -23,7 +22,7 @@ public class CurrentUserProvider {
             throw new IllegalStateException("인증 정보가 없습니다.");
         }
 
-        String email = auth.getName(); // JwtAuthFilter에서 넣어준 email
+        String email = auth.getName();
         return userRepository.findByEmail(email)
                 .orElseThrow(() -> new IllegalStateException("사용자를 찾을 수 없습니다."));
     }

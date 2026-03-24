@@ -17,21 +17,19 @@ import lombok.RequiredArgsConstructor;
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
 public class UserController {
-	private final UserService userService;
-	
-	@PostMapping("/signup")
-	public ResponseEntity<?> signup(@Valid @RequestBody SignupRequest request) {
-		Long userId = userService.signup(request);
-		return ResponseEntity.ok().body(
-			new SignupResponse(userId, "회원가입이 완료되었습니다")
-		);
-	}
-	
-	@PostMapping("/login")
-	public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request) {
-		UserService.LoginResult loginResult = userService.login(request);
-		return ResponseEntity.ok(loginResult);
-	}
-	
-	record SignupResponse(Long id, String message) {}
+    private final UserService userService;
+
+    @PostMapping("/signup")
+    public ResponseEntity<?> signup(@Valid @RequestBody SignupRequest request) {
+        Integer userId = userService.signup(request);
+        return ResponseEntity.ok().body(new SignupResponse(userId, "회원가입이 완료되었습니다"));
+    }
+
+    @PostMapping("/login")
+    public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request) {
+        UserService.LoginResult loginResult = userService.login(request);
+        return ResponseEntity.ok(loginResult);
+    }
+
+    record SignupResponse(Integer id, String message) {}
 }

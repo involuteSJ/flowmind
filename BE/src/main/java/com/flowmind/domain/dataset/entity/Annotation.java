@@ -14,7 +14,7 @@ public class Annotation {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "annotation_id")
-    private Long annotationId;
+    private Integer annotationId;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "asset_id", nullable = false)

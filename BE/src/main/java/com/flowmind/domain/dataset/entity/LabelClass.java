@@ -12,13 +12,13 @@ import lombok.*;
 public class LabelClass {
 
     @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "class_id")
-    private Long classId;
+    private Integer classId;
 
-    @Column(name = "name")
+    @Column(name = "name", length = 45)
     private String name;
 
-    // 어떤 버전의 클래스인지
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "dataset_version_id", nullable = false)
     private DatasetVersion datasetVersion;

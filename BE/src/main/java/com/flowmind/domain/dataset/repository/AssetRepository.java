@@ -9,8 +9,8 @@ import org.springframework.data.repository.query.Param;
 import com.flowmind.domain.dataset.entity.Asset;
 import com.flowmind.domain.dataset.entity.DatasetVersion;
 
-public interface AssetRepository extends JpaRepository<Asset, Long>{
-	@Query("""
+public interface AssetRepository extends JpaRepository<Asset, Integer> {
+    @Query("""
         SELECT DISTINCT a
         FROM Asset a
         LEFT JOIN FETCH a.annotations ann

@@ -5,7 +5,7 @@ import java.util.List;
 import com.flowmind.domain.dataset.entity.Dataset;
 
 public record DatasetResponse(
-        Long id,
+        Integer id,
         String name,
         List<DatasetVersionResponse> versions
 ) {
@@ -15,10 +15,6 @@ public record DatasetResponse(
                 .map(DatasetVersionResponse::from)
                 .toList();
 
-        return new DatasetResponse(
-                dataset.getDatasetId(),
-                dataset.getName(),
-                versions
-        );
+        return new DatasetResponse(dataset.getDatasetId(), dataset.getName(), versions);
     }
 }

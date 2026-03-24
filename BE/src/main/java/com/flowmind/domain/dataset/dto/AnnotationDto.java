@@ -1,9 +1,7 @@
 package com.flowmind.domain.dataset.dto;
 
-import java.util.List;
-
 public record AnnotationDto(
-        Long id,
+        Integer id,
         String label,
         double xCenter,
         double yCenter,

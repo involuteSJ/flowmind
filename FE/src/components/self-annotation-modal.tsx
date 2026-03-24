@@ -1,395 +1,372 @@
-"use client"
-
 import type React from "react"
-
-import { useState, useRef, useEffect } from "react"
-import { X, ChevronLeft, ChevronRight, Trash2 } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { X, ChevronLeft, ChevronRight, Trash2, Layers, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 
-interface Annotation {
+export interface ModalAnnotation {
   id: string
-  x: number
-  y: number
-  width: number
-  height: number
+  x: number  // YOLO center_x (0..1)
+  y: number  // YOLO center_y (0..1)
+  width: number   // YOLO normalized width
+  height: number  // YOLO normalized height
   label: string
 }
 
+export interface ModalImageItem {
+  id: number
+  preview: string
+  filename?: string
+  annotations?: ModalAnnotation[]
+}
+
 interface ImageAnnotations {
-  imageId: string
-  annotations: Annotation[]
+  imageId: number
+  annotations: ModalAnnotation[]
 }
 
 interface SelfAnnotationModalProps {
-  images: Array<{ id: string; preview: string }>
+  images: ModalImageItem[]
+  initialIndex?: number
   onClose: () => void
   onSave: (annotations: ImageAnnotations[]) => void
 }
 
-export function SelfAnnotationModal({ images, onClose, onSave }: SelfAnnotationModalProps) {
-  const [currentIndex, setCurrentIndex] = useState(0)
-  const [allAnnotations, setAllAnnotations] = useState<Record<string, Annotation[]>>({})
+export function SelfAnnotationModal({ images, initialIndex = 0, onClose, onSave }: SelfAnnotationModalProps) {
+  const [currentIndex, setCurrentIndex] = useState(initialIndex)
+  const [allAnnotations, setAllAnnotations] = useState<Record<number, ModalAnnotation[]>>({})
   const [isDrawing, setIsDrawing] = useState(false)
   const [startPos, setStartPos] = useState<{ x: number; y: number } | null>(null)
   const [currentRect, setCurrentRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
   const [showLabelInput, setShowLabelInput] = useState(false)
   const [labelValue, setLabelValue] = useState("")
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null)
-  const imageContainerRef = useRef<HTMLDivElement>(null)
+
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const imgRef = useRef<HTMLImageElement>(null)
+  const wrapperRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  const [saving, setSaving] = useState(false)
 
   const currentImage = images[currentIndex]
 
-  // Initialize annotations
+  // Init annotations
   useEffect(() => {
-    const initialized: Record<string, Annotation[]> = {}
-    images.forEach((img) => {
-      initialized[img.id] = []
-    })
-    setAllAnnotations(initialized)
+    const init: Record<number, ModalAnnotation[]> = {}
+    images.forEach((img) => { init[img.id] = img.annotations ?? [] })
+    setAllAnnotations(init)
   }, [images])
 
-  // Focus input when it appears
   useEffect(() => {
-    if (showLabelInput && inputRef.current) {
-      inputRef.current.focus()
-    }
+    if (showLabelInput && inputRef.current) inputRef.current.focus()
   }, [showLabelInput])
 
-  // Draw annotations on canvas
+  // Redraw canvas whenever annotations / currentRect changes
   useEffect(() => {
+    redraw()
+  }, [allAnnotations, currentImage, selectedAnnotationId, currentRect])
+
+  const redraw = () => {
     const canvas = canvasRef.current
-    if (!canvas || !imageContainerRef.current) return
+    const img = imgRef.current
+    const wrapper = wrapperRef.current
+    if (!canvas || !img || !wrapper || !currentImage) return
 
     const ctx = canvas.getContext("2d")
     if (!ctx) return
 
-    const container = imageContainerRef.current
-    canvas.width = container.offsetWidth
-    canvas.height = container.offsetHeight
+    const W = wrapper.clientWidth
+    const H = wrapper.clientHeight
+    canvas.width = W
+    canvas.height = H
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    ctx.clearRect(0, 0, W, H)
 
-    // Draw existing annotations
-    const currentAnnotations = allAnnotations[currentImage.id] || []
-    currentAnnotations.forEach((annotation) => {
-      const isSelected = selectedAnnotationId === annotation.id
-      ctx.strokeStyle = isSelected ? "#06b6d4" : "#0891b2"
-      ctx.lineWidth = isSelected ? 3 : 2
-      ctx.strokeRect(annotation.x, annotation.y, annotation.width, annotation.height)
+    const imgRect = img.getBoundingClientRect()
+    const wrapperRect = wrapper.getBoundingClientRect()
+    const offsetX = imgRect.left - wrapperRect.left
+    const offsetY = imgRect.top - wrapperRect.top
+    const dispW = imgRect.width
+    const dispH = imgRect.height
+    const natW = img.naturalWidth || dispW
+    const natH = img.naturalHeight || dispH
 
-      // Draw label background
-      const labelText = annotation.label
-      const fontHeight = 16
-      const padding = 4
-      const textWidth = ctx.measureText(labelText).width
+    const yoloToCanvas = (a: ModalAnnotation) => {
+      const cx = a.x * natW
+      const cy = a.y * natH
+      const aw = a.width * natW
+      const ah = a.height * natH
+      const sx = dispW / natW
+      const sy = dispH / natH
+      return {
+        x: offsetX + (cx - aw / 2) * sx,
+        y: offsetY + (cy - ah / 2) * sy,
+        w: aw * sx,
+        h: ah * sy,
+      }
+    }
 
-      ctx.fillStyle = isSelected ? "#06b6d4" : "#0891b2"
-      ctx.fillRect(
-        annotation.x,
-        annotation.y - fontHeight - padding * 2,
-        textWidth + padding * 2,
-        fontHeight + padding * 2,
-      )
+    // Draw saved annotations
+    const annotations = allAnnotations[currentImage.id] || []
+    annotations.forEach((a) => {
+      const { x, y, w, h } = yoloToCanvas(a)
+      const selected = selectedAnnotationId === a.id
+      ctx.strokeStyle = selected ? "#22d3ee" : "#06b6d4"
+      ctx.lineWidth = selected ? 3 : 2
+      ctx.strokeRect(x, y, w, h)
 
+      ctx.font = "bold 12px sans-serif"
+      const tw = ctx.measureText(a.label).width
+      const pad = 4
+      const lh = 16
+      ctx.fillStyle = selected ? "#22d3ee" : "#06b6d4"
+      ctx.fillRect(x, Math.max(0, y - lh - pad * 2), tw + pad * 2, lh + pad * 2)
       ctx.fillStyle = "#000"
-      ctx.font = "14px sans-serif"
-      ctx.fillText(labelText, annotation.x + padding, annotation.y - padding)
+      ctx.fillText(a.label, x + pad, Math.max(14, y - pad))
     })
 
-    // Draw current drawing rectangle
+    // Draw in-progress rect
     if (currentRect) {
-      ctx.strokeStyle = "#06b6d4"
+      ctx.strokeStyle = "#a855f7"
       ctx.lineWidth = 2
       ctx.setLineDash([5, 5])
       ctx.strokeRect(currentRect.x, currentRect.y, currentRect.width, currentRect.height)
       ctx.setLineDash([])
     }
-  }, [allAnnotations, currentImage.id, selectedAnnotationId, currentRect])
+  }
+
+  const getPos = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current!
+    const r = canvas.getBoundingClientRect()
+    return { x: e.clientX - r.left, y: e.clientY - r.top }
+  }
 
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!imageContainerRef.current) return
-
-    const rect = imageContainerRef.current.getBoundingClientRect()
-    const x = e.clientX - rect.left
-    const y = e.clientY - rect.top
-
+    const pos = getPos(e)
     setIsDrawing(true)
-    setStartPos({ x, y })
-    setCurrentRect({ x, y, width: 0, height: 0 })
+    setStartPos(pos)
+    setCurrentRect({ ...pos, width: 0, height: 0 })
     setSelectedAnnotationId(null)
   }
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDrawing || !startPos || !imageContainerRef.current) return
-
-    const rect = imageContainerRef.current.getBoundingClientRect()
-    const x = e.clientX - rect.left
-    const y = e.clientY - rect.top
-
-    setCurrentRect({
-      x: startPos.x,
-      y: startPos.y,
-      width: x - startPos.x,
-      height: y - startPos.y,
-    })
+    if (!isDrawing || !startPos) return
+    const pos = getPos(e)
+    setCurrentRect({ x: startPos.x, y: startPos.y, width: pos.x - startPos.x, height: pos.y - startPos.y })
   }
 
   const handleMouseUp = () => {
-    if (!isDrawing || !currentRect) {
-      setIsDrawing(false)
-      return
-    }
-
-    // Only show label input if rectangle has meaningful size
-    if (Math.abs(currentRect.width) > 10 && Math.abs(currentRect.height) > 10) {
+    if (!isDrawing) return
+    setIsDrawing(false)
+    if (currentRect && Math.abs(currentRect.width) > 10 && Math.abs(currentRect.height) > 10) {
       setShowLabelInput(true)
     } else {
       setCurrentRect(null)
     }
-    setIsDrawing(false)
   }
 
-  const handleAddAnnotation = () => {
-    if (!currentRect || !labelValue.trim()) return
+  const handleAdd = () => {
+    if (!currentRect || !labelValue.trim() || !currentImage || !imgRef.current || !wrapperRef.current) return
 
-    const normalizedRect = {
-      x: currentRect.width < 0 ? currentRect.x + currentRect.width : currentRect.x,
-      y: currentRect.height < 0 ? currentRect.y + currentRect.height : currentRect.y,
-      width: Math.abs(currentRect.width),
-      height: Math.abs(currentRect.height),
-    }
+    const img = imgRef.current
+    const wrapper = wrapperRef.current
+    const imgRect = img.getBoundingClientRect()
+    const wrapperRect = wrapper.getBoundingClientRect()
+    const offsetX = imgRect.left - wrapperRect.left
+    const offsetY = imgRect.top - wrapperRect.top
+    const dispW = imgRect.width
+    const dispH = imgRect.height
+    const natW = img.naturalWidth || dispW
+    const natH = img.naturalHeight || dispH
 
-    const newAnnotation: Annotation = {
-      id: Math.random().toString(36).substr(2, 9),
-      ...normalizedRect,
+    const rx = currentRect.width < 0 ? currentRect.x + currentRect.width : currentRect.x
+    const ry = currentRect.height < 0 ? currentRect.y + currentRect.height : currentRect.y
+    const rw = Math.abs(currentRect.width)
+    const rh = Math.abs(currentRect.height)
+
+    const imgRelX = rx - offsetX
+    const imgRelY = ry - offsetY
+    const scaleX = natW / dispW
+    const scaleY = natH / dispH
+
+    const xOnImg = Math.max(0, imgRelX * scaleX)
+    const yOnImg = Math.max(0, imgRelY * scaleY)
+    const wOnImg = Math.min(natW - xOnImg, rw * scaleX)
+    const hOnImg = Math.min(natH - yOnImg, rh * scaleY)
+
+    const annotation: ModalAnnotation = {
+      id: Math.random().toString(36).slice(2, 10),
+      x: parseFloat(((xOnImg + wOnImg / 2) / natW).toFixed(6)),
+      y: parseFloat(((yOnImg + hOnImg / 2) / natH).toFixed(6)),
+      width: parseFloat((wOnImg / natW).toFixed(6)),
+      height: parseFloat((hOnImg / natH).toFixed(6)),
       label: labelValue.trim(),
     }
 
-    setAllAnnotations((prev) => ({
-      ...prev,
-      [currentImage.id]: [...(prev[currentImage.id] || []), newAnnotation],
-    }))
-
+    setAllAnnotations((prev) => ({ ...prev, [currentImage.id]: [...(prev[currentImage.id] || []), annotation] }))
     setCurrentRect(null)
     setShowLabelInput(false)
     setLabelValue("")
   }
 
-  const handleCancel = () => {
-    setCurrentRect(null)
-    setShowLabelInput(false)
-    setLabelValue("")
-  }
-
-  const handleRemoveAnnotation = (annotationId: string) => {
-    setAllAnnotations((prev) => ({
-      ...prev,
-      [currentImage.id]: prev[currentImage.id].filter((a) => a.id !== annotationId),
-    }))
-    setSelectedAnnotationId(null)
-  }
-
-  const handleNext = () => {
-    if (currentIndex < images.length - 1) {
-      setCurrentIndex(currentIndex + 1)
-      setSelectedAnnotationId(null)
-      setCurrentRect(null)
-      setShowLabelInput(false)
-    }
-  }
-
-  const handlePrev = () => {
-    if (currentIndex > 0) {
-      setCurrentIndex(currentIndex - 1)
-      setSelectedAnnotationId(null)
-      setCurrentRect(null)
-      setShowLabelInput(false)
-    }
+  const handleRemove = (id: string) => {
+    if (!currentImage) return
+    setAllAnnotations((prev) => ({ ...prev, [currentImage.id]: (prev[currentImage.id] || []).filter((a) => a.id !== id) }))
+    if (selectedAnnotationId === id) setSelectedAnnotationId(null)
   }
 
   const handleSave = () => {
-    const annotationsArray = images.map((img) => ({
-      imageId: img.id,
-      annotations: allAnnotations[img.id] || [],
-    }))
-    console.log("[v0] Saving annotations:", annotationsArray)
-    onSave(annotationsArray)
+    setSaving(true)
+    onSave(images.map((img) => ({ imageId: img.id, annotations: allAnnotations[img.id] || [] })))
   }
 
-  const currentAnnotations = allAnnotations[currentImage.id] || []
-  const totalAnnotations = Object.values(allAnnotations).reduce((sum, arr) => sum + arr.length, 0)
+  const currentAnnotations = currentImage ? (allAnnotations[currentImage.id] || []) : []
+
+  if (!currentImage) return null
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <Card className="w-full max-w-6xl max-h-[90vh] flex flex-col overflow-hidden">
+    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+      {/* Modal: full height, no internal scroll */}
+      <div className="bg-card border border-border rounded-xl w-full max-w-6xl flex flex-col" style={{ height: "calc(100vh - 2rem)" }}>
+
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-border bg-card">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
           <div>
-            <h2 className="text-2xl font-bold">Self-Annotation Tool</h2>
-            <p className="text-sm text-muted-foreground">
-              Drag to draw boxes around objects and label them. Image {currentIndex + 1} of {images.length}
+            <h2 className="text-xl font-bold">Self-Annotation Tool</h2>
+            <p className="text-xs text-muted-foreground">
+              {currentImage.filename || `Image ${currentIndex + 1}`} &mdash; {currentIndex + 1} / {images.length}
             </p>
           </div>
-          <button onClick={onClose} className="p-1 hover:bg-accent/10 rounded transition">
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
             <X className="w-6 h-6" />
           </button>
         </div>
 
-        {/* Main Content */}
-        <div className="flex-1 overflow-y-auto p-6">
-          <div className="grid grid-cols-4 gap-6">
-            {/* Canvas Area */}
-            <div className="col-span-3">
-              <div className="relative w-full bg-black rounded-lg overflow-hidden border-2 border-border">
-                <img
-                  src={currentImage.preview || "/placeholder.svg"}
-                  alt={`Image ${currentIndex + 1}`}
-                  className="w-full h-auto block"
-                />
-                <div ref={imageContainerRef} className="absolute inset-0">
-                  <canvas
-                    ref={canvasRef}
-                    onMouseDown={handleMouseDown}
-                    onMouseMove={handleMouseMove}
-                    onMouseUp={handleMouseUp}
-                    onMouseLeave={handleMouseUp}
-                    className="absolute inset-0 cursor-crosshair"
+        {/* Body: fills remaining height, no overflow */}
+        <div className="flex flex-1 min-h-0 gap-4 p-4">
+
+          {/* Canvas area */}
+          <div className="flex flex-col flex-1 min-w-0 min-h-0">
+            {/* Image wrapper: fills all available height */}
+            <div
+              ref={wrapperRef}
+              className="relative flex-1 min-h-0 bg-black/60 rounded-lg overflow-hidden border border-border"
+            >
+              {/* Image with object-contain to show full image inside wrapper */}
+              <img
+                ref={imgRef}
+                src={currentImage.preview}
+                alt={currentImage.filename || "image"}
+                className="absolute inset-0 w-full h-full object-contain"
+                onLoad={() => redraw()}
+              />
+              {/* Canvas overlaid exactly on wrapper */}
+              <canvas
+                ref={canvasRef}
+                onMouseDown={handleMouseDown}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
+                onMouseLeave={handleMouseUp}
+                className="absolute inset-0 w-full h-full cursor-crosshair"
+              />
+
+              {/* Label input popup */}
+              {showLabelInput && currentRect && (
+                <div
+                  className="absolute bg-card border-2 border-purple-500 rounded-lg p-3 z-20 shadow-xl"
+                  style={{
+                    left: Math.min(Math.max(0, currentRect.width < 0 ? currentRect.x + currentRect.width : currentRect.x), (wrapperRef.current?.clientWidth ?? 400) - 220),
+                    top: Math.min(Math.max(10, (currentRect.height < 0 ? currentRect.y + currentRect.height : currentRect.y + Math.abs(currentRect.height)) + 8), (wrapperRef.current?.clientHeight ?? 400) - 100),
+                  }}
+                >
+                  <p className="text-xs text-muted-foreground mb-2">라벨 입력</p>
+                  <Input
+                    ref={inputRef}
+                    value={labelValue}
+                    onChange={(e) => setLabelValue(e.target.value)}
+                    placeholder="예: car, person, dog..."
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleAdd()
+                      if (e.key === "Escape") { setShowLabelInput(false); setCurrentRect(null); setLabelValue("") }
+                    }}
+                    className="w-48 text-sm mb-2"
                   />
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={handleAdd} className="flex-1">Add</Button>
+                    <Button size="sm" variant="outline" className="flex-1 bg-transparent"
+                      onClick={() => { setShowLabelInput(false); setCurrentRect(null); setLabelValue("") }}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
 
-                  {/* Label Input */}
-                  {showLabelInput && currentRect && (
-                    <div
-                      className="absolute bg-card border-2 border-accent rounded p-2 z-20"
-                      style={{
-                        left: `${currentRect.x}px`,
-                        top: `${currentRect.y - 50}px`,
-                      }}
-                    >
-                      <Input
-                        ref={inputRef}
-                        type="text"
-                        placeholder="Enter label..."
-                        value={labelValue}
-                        onChange={(e) => setLabelValue(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") handleAddAnnotation()
-                          if (e.key === "Escape") handleCancel()
-                        }}
-                        className="w-40 text-sm"
-                      />
-                      <div className="flex gap-2 mt-2">
-                        <Button size="sm" onClick={handleAddAnnotation} className="flex-1">
-                          Add
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={handleCancel} className="flex-1 bg-transparent">
-                          Cancel
-                        </Button>
-                      </div>
+            {/* Prev / Next navigation */}
+            <div className="flex items-center justify-between mt-3 shrink-0">
+              <Button variant="outline" size="sm" disabled={currentIndex === 0}
+                onClick={() => { setCurrentIndex((p) => p - 1); setCurrentRect(null); setShowLabelInput(false) }}
+                className="gap-1 bg-transparent">
+                <ChevronLeft className="w-4 h-4" /> Previous
+              </Button>
+              <div className="flex gap-1">
+                {images.map((_, i) => (
+                  <button key={i}
+                    onClick={() => { setCurrentIndex(i); setCurrentRect(null); setShowLabelInput(false) }}
+                    className={`rounded-full transition-all h-2 ${i === currentIndex ? "bg-accent w-5" : (allAnnotations[images[i].id]?.length ?? 0) > 0 ? "bg-accent/50 w-2" : "bg-muted-foreground/30 w-2"}`}
+                  />
+                ))}
+              </div>
+              <Button variant="outline" size="sm" disabled={currentIndex === images.length - 1}
+                onClick={() => { setCurrentIndex((p) => p + 1); setCurrentRect(null); setShowLabelInput(false) }}
+                className="gap-1 bg-transparent">
+                Next <ChevronRight className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+
+          {/* Sidebar */}
+          <div className="w-56 shrink-0 flex flex-col min-h-0">
+            <div className="flex items-center gap-2 mb-3">
+              <Layers className="w-4 h-4 text-cyan-400" />
+              <span className="font-semibold text-sm">Annotations</span>
+              <span className="ml-auto text-xs bg-accent/20 text-accent px-2 py-0.5 rounded-full">{currentAnnotations.length}</span>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2 min-h-0">
+              {currentAnnotations.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground text-xs">
+                  이미지 위에서 드래그해서<br />바운딩 박스를 그려주세요
+                </div>
+              ) : (
+                currentAnnotations.map((a, i) => (
+                  <div key={a.id}
+                    onClick={() => setSelectedAnnotationId(a.id === selectedAnnotationId ? null : a.id)}
+                    className={`p-2 rounded-lg border cursor-pointer transition-all flex items-center justify-between gap-2 ${selectedAnnotationId === a.id ? "border-cyan-500 bg-cyan-500/10" : "border-border hover:border-cyan-500/50 bg-background/40"}`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="w-5 h-5 rounded bg-cyan-500 text-background text-xs font-bold flex items-center justify-center shrink-0">{i + 1}</span>
+                      <span className="text-sm truncate">{a.label}</span>
                     </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Navigation */}
-              <div className="flex items-center justify-between mt-6 gap-4">
-                <Button
-                  variant="outline"
-                  onClick={handlePrev}
-                  disabled={currentIndex === 0}
-                  className="gap-2 flex-1 bg-transparent"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                  Previous
-                </Button>
-                <div className="text-sm text-muted-foreground px-4 py-2 rounded bg-accent/10">
-                  {currentIndex + 1} / {images.length}
-                </div>
-                <Button
-                  variant="outline"
-                  onClick={handleNext}
-                  disabled={currentIndex === images.length - 1}
-                  className="gap-2 flex-1 bg-transparent"
-                >
-                  Next
-                  <ChevronRight className="w-4 h-4" />
-                </Button>
-              </div>
+                    <button onClick={(e) => { e.stopPropagation(); handleRemove(a.id) }} className="text-destructive shrink-0">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))
+              )}
             </div>
 
-            {/* Sidebar */}
-            <div className="col-span-1">
-              <Card className="p-4 bg-card/50 border-border/50 flex flex-col h-full">
-                <h3 className="font-semibold text-sm mb-4">Annotations ({currentAnnotations.length})</h3>
-
-                <div className="space-y-2 flex-1 overflow-y-auto">
-                  {currentAnnotations.length === 0 ? (
-                    <p className="text-xs text-muted-foreground text-center py-4">Drag on image to add annotations</p>
-                  ) : (
-                    currentAnnotations.map((annotation) => (
-                      <div
-                        key={annotation.id}
-                        className={`p-2 rounded border text-xs cursor-pointer transition ${
-                          selectedAnnotationId === annotation.id
-                            ? "border-accent bg-accent/10"
-                            : "border-border hover:border-accent/50"
-                        }`}
-                        onClick={() => setSelectedAnnotationId(annotation.id)}
-                      >
-                        <div className="font-semibold text-accent truncate">{annotation.label}</div>
-                        <div className="text-muted-foreground text-xs">
-                          ({Math.round(annotation.x)}, {Math.round(annotation.y)})
-                        </div>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleRemoveAnnotation(annotation.id)
-                          }}
-                          className="mt-1 w-full px-2 py-1 text-xs rounded bg-destructive/10 text-destructive hover:bg-destructive/20 transition flex items-center justify-center gap-1"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                          Delete
-                        </button>
-                      </div>
-                    ))
-                  )}
-                </div>
-
-                <div className="mt-4 pt-4 border-t border-border/50 text-xs text-muted-foreground">
-                  <div className="mb-2">Progress</div>
-                  <div className="w-full bg-muted rounded-full h-1.5">
-                    <div
-                      className="bg-primary h-1.5 rounded-full transition-all"
-                      style={{
-                        width: `${images.length > 0 ? (currentIndex / images.length) * 100 : 0}%`,
-                      }}
-                    />
-                  </div>
-                  <div className="mt-2 text-center">
-                    <span className="font-semibold">{totalAnnotations}</span> total annotations
-                  </div>
-                </div>
-              </Card>
+            {/* Footer actions */}
+            <div className="mt-4 space-y-2 shrink-0">
+              <Button onClick={handleSave} disabled={saving} className="w-full text-sm">
+                {saving ? <><Loader2 className="w-4 h-4 mr-1 animate-spin" />저장 중...</> : "Save All"}
+              </Button>
+              <Button variant="outline" onClick={onClose} className="w-full text-sm bg-transparent">Cancel</Button>
             </div>
           </div>
         </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-between p-6 border-t border-border bg-card/50">
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <div className="text-xs text-muted-foreground">
-            Total: <span className="font-semibold">{totalAnnotations}</span> annotations
-          </div>
-          <Button onClick={handleSave} className="gap-2">
-            Save All Annotations
-          </Button>
-        </div>
-      </Card>
+      </div>
     </div>
   )
 }
